@@ -1,0 +1,10 @@
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+.env*
+!.env.example
+public/pdf.worker.min.mjs
+playwright-report/
+test-results/
+.artifacts/

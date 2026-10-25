@@ -1,0 +1,32 @@
+{
+  "version": "mozilla-envi-04fa6044-bergamot-4.0",
+  "sourceLanguage": "en",
+  "targetLanguage": "vi",
+  "assets": {
+    "glue": {
+      "name": "bergamot-translator.js",
+      "size": 99827,
+      "sha256": "972fa0450146fe06f4006a2ba56e8c4834403e27873cfe47fb3ba85aa7b9b082"
+    },
+    "wasm": {
+      "name": "bergamot-translator.wasm",
+      "size": 4960506,
+      "sha256": "f38ef807636a7c994afedaab7ff8ffe0d590d21897f05139f747b80fd7bbe926"
+    },
+    "model": {
+      "name": "model.envi.intgemm.alphas.bin",
+      "size": 31561787,
+      "sha256": "04fa6044593a404c2aa02b3096f203880852df6f8f41e5eb966ed9f2b4366737"
+    },
+    "lex": {
+      "name": "lex.50.50.envi.s2t.bin",
+      "size": 4597684,
+      "sha256": "18116817fcd3d24dcdfd97cb57e9e60472800dae3b8a007f6f36d61d645f699c"
+    },
+    "vocab": {
+      "name": "vocab.envi.spm",
+      "size": 785200,
+      "sha256": "76daa9a49e393e50c865c889290e4dc36e9453e5e1ec9df7b9f3bc39ea782537"
+    }
+  }
+}

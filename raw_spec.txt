@@ -1,0 +1,322 @@
+# English Reading & Text-to-Speech Website — Raw Specification
+
+## 1. Product Goal
+
+Build a website for reading text documents, listening to document content using text-to-speech, learning English, and taking notes while reading.
+
+The application should allow users to open documents, read their content, listen to the content, interact with selected text, save learning information, and review vocabulary through English-learning activities.
+
+---
+
+# 2. Document Management
+
+The application must support documents from both predefined content and user-uploaded files.
+
+### 2.1 Available Documents
+
+Users can:
+
+* Browse documents that are already available in the application.
+* Open an available document for reading.
+* Add a document to favorites.
+* View documents that have been marked as favorites.
+
+### 2.2 Upload Documents
+
+Users can:
+
+* Upload documents from their computer.
+* Open uploaded documents for reading.
+* Store uploaded document content locally so it remains available after the application is reopened.
+* View uploaded documents in the document list.
+
+The application should support commonly used text/document formats, including:
+
+* PDF
+* TXT
+* DOCX
+* MD
+* Other supported text-based document formats where applicable.
+
+### 2.3 Document Information
+
+For each document, the application should be able to display relevant information such as:
+
+* Document title.
+* Document type.
+* Reading content.
+* Favorite state.
+* Other information required to identify and manage the document.
+
+---
+
+# 3. Reading
+
+Users can open a document and read its content directly on the screen.
+
+The reading experience should support:
+
+* Viewing document content.
+* Navigating through the document.
+* Knowing the current reading position/page where applicable.
+* Continuing to interact with the currently opened document.
+
+For paginated documents, the application should support page-based reading.
+
+---
+
+# 4. Text-to-Speech
+
+The application must provide text-to-speech functionality for the currently opened document.
+
+Users can:
+
+* Read the current page using text-to-speech.
+* Read the entire document using text-to-speech.
+* Start and stop text-to-speech playback.
+* Use text-to-speech with supported languages.
+
+Currently supported TTS languages:
+
+* English.
+* Vietnamese.
+
+The application should provide appropriate user settings related to TTS where applicable.
+
+---
+
+# 5. Text Selection
+
+Users can select text within the currently opened document.
+
+When text is selected, the application should provide actions including:
+
+* Read selected text.
+* Highlight selected text.
+* Translate selected text.
+* Add selected text to the vocabulary list.
+
+The selected-text interactions should work within the reading experience without requiring the user to leave the current document.
+
+---
+
+# 6. Translation
+
+The application must support translation of selected text.
+
+Current translation direction:
+
+* English → Vietnamese.
+
+Translation should be available from the text-selection interaction.
+
+The application does not currently need to support other translation directions.
+
+---
+
+# 7. Highlight
+
+Users can highlight selected text in a document.
+
+The application should:
+
+* Allow users to create highlights from selected text.
+* Preserve highlights when the document is reopened.
+* Display saved highlights while reading the document.
+* Allow users to interact with previously created highlights.
+
+The highlight state must remain associated with the corresponding document and selected content.
+
+---
+
+# 8. Notes
+
+Users can create notes related to their reading experience.
+
+The application should support:
+
+* Creating notes.
+* Viewing saved notes.
+* Keeping notes associated with the relevant reading/document context.
+* Preserving notes after the application is closed and reopened.
+
+Notes are part of the user's local reading data.
+
+---
+
+# 9. Vocabulary
+
+The application must provide a vocabulary collection for English learning.
+
+Users can:
+
+* Add selected English words/text to the saved vocabulary list.
+* View saved vocabulary.
+* Review previously saved vocabulary.
+* Use saved vocabulary as learning material.
+
+Vocabulary items should retain the information necessary for users to review what they previously saved.
+
+---
+
+# 10. English Learning
+
+The application must provide learning activities based on vocabulary saved by the user.
+
+The learning area should support learning through activities such as:
+
+* Flash cards.
+* Questions.
+* Other vocabulary practice activities where applicable.
+
+The learning experience should use the user's saved vocabulary as learning material.
+
+The application should support:
+
+* Starting a learning session.
+* Viewing vocabulary items during a learning session.
+* Answering questions where applicable.
+* Moving through multiple learning items.
+* Finishing a learning session.
+
+---
+
+# 11. Favorites
+
+Users can mark documents as favorites.
+
+The application should support:
+
+* Adding a document to favorites.
+* Removing a document from favorites.
+* Viewing the user's favorite documents.
+* Preserving favorite state across application sessions.
+
+---
+
+# 12. Local Persistence
+
+User-generated reading and learning state must be stored locally on the user's device.
+
+The following information should be persisted:
+
+* Uploaded documents.
+* Notes.
+* Highlights.
+* Saved vocabulary.
+* Favorite documents.
+* User settings.
+* Other local user state required for the application to restore the previous experience.
+
+The persisted data should be represented as JSON objects where applicable.
+
+Related application state should use a consistent key-based storage structure.
+
+The application must restore persisted information when the user returns to the application.
+
+---
+
+# 13. User Settings
+
+The application should provide user settings related to the reading and learning experience.
+
+Settings may include applicable preferences for:
+
+* Theme.
+* Text-to-speech.
+* Reading experience.
+* Other user-configurable behavior supported by the application.
+
+User settings must be persisted locally.
+
+---
+
+# 14. Theming
+
+The application must use the theming library:
+
+`@hangnguyen1902/theme@0.1.0`
+
+The application must support:
+
+* Light mode.
+* Dark mode.
+
+The theme should be applied consistently throughout the application.
+
+---
+
+# 15. Supported Languages
+
+The current language-related scope is:
+
+### Translation
+
+* English → Vietnamese only.
+
+### Text-to-Speech
+
+* English.
+* Vietnamese.
+
+The application does not currently require broader language support beyond the scope above.
+
+---
+
+# 16. Main User Capabilities
+
+A user should be able to complete the following flows:
+
+### Document flow
+
+* Browse available documents.
+* Upload a document.
+* Open a document.
+* Read a document.
+* Navigate through the document.
+* Mark a document as favorite.
+* View favorite documents.
+
+### Reading flow
+
+* Select text.
+* Read selected text aloud.
+* Highlight selected text.
+* Translate selected English text into Vietnamese.
+* Save selected text as vocabulary.
+* Add and view notes.
+
+### Vocabulary flow
+
+* View saved vocabulary.
+* Start an English-learning session.
+* Practice vocabulary using flash cards.
+* Practice vocabulary using questions.
+
+### Persistence flow
+
+* Close and reopen the application.
+* Restore uploaded documents.
+* Restore notes.
+* Restore highlights.
+* Restore vocabulary.
+* Restore favorites.
+* Restore user settings.
+
+---
+
+# 17. Initial Scope
+
+The initial version focuses on:
+
+* Local document reading.
+* Text-to-speech.
+* English learning.
+* Vocabulary management.
+* Notes.
+* Highlights.
+* Favorites.
+* Local persistence.
+* Light/dark theming.
+
+No requirement is defined for backend services, user accounts, cloud synchronization, or multi-device synchronization in the current scope.

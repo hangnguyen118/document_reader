@@ -1,0 +1,61 @@
+{
+  "version": "mozilla-envi-04fa6044-bergamot-4.0",
+  "manifestSha256": "18a6ae35004f3900c1711eeecc0a9e770247e1807161a6fadb77370905815bf0",
+  "engineRevision": "1de4a085d3a7afb625c51a60aabb5ad298e4059f",
+  "firefoxRevision": "2c8de06acae0a9edcbd1e0e49f951a0cbfe427a2",
+  "engineRegistry": "https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/translations-wasm-v2/records",
+  "modelRegistry": "https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/translations-models-v2/records",
+  "modelArchitecture": "base-memory",
+  "modelVersion": "3.0",
+  "assets": [
+    {
+      "role": "glue",
+      "name": "bergamot-translator.js",
+      "url": "https://raw.githubusercontent.com/mozilla-firefox/firefox/2c8de06acae0a9edcbd1e0e49f951a0cbfe427a2/toolkit/components/translations/bergamot-translator/bergamot-translator.js",
+      "size": 99827,
+      "sha256": "972fa0450146fe06f4006a2ba56e8c4834403e27873cfe47fb3ba85aa7b9b082"
+    },
+    {
+      "role": "wasm",
+      "name": "bergamot-translator.wasm",
+      "url": "https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-wasm-v2/a76f9efe-b185-4a7f-9c3b-5f5d216d12e6.zst",
+      "compression": "zstd",
+      "downloadSha256": "327fcfc7b7e9d95f6fa0844ebf899cfc05469872ef02d3aef5783182839a6255",
+      "size": 4960506,
+      "sha256": "f38ef807636a7c994afedaab7ff8ffe0d590d21897f05139f747b80fd7bbe926"
+    },
+    {
+      "role": "model",
+      "name": "model.envi.intgemm.alphas.bin",
+      "url": "https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-models-v2/b2fdb03b-d12f-47ad-b433-6a226e79e06d.zst",
+      "compression": "zstd",
+      "downloadSha256": "4a48edf88d1c31af324f610c5d58540e231c6eb724ba77be77b9772d8dd969cc",
+      "size": 31561787,
+      "sha256": "04fa6044593a404c2aa02b3096f203880852df6f8f41e5eb966ed9f2b4366737"
+    },
+    {
+      "role": "lex",
+      "name": "lex.50.50.envi.s2t.bin",
+      "url": "https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-models-v2/8c1496df-6214-415f-8fff-fc909b09f2d8.zst",
+      "compression": "zstd",
+      "downloadSha256": "bbd8db580c380045eec351fd6a20ad0205853418fff56dbd2cc45c4c70bf4b95",
+      "size": 4597684,
+      "sha256": "18116817fcd3d24dcdfd97cb57e9e60472800dae3b8a007f6f36d61d645f699c"
+    },
+    {
+      "role": "vocab",
+      "name": "vocab.envi.spm",
+      "url": "https://firefox-settings-attachments.cdn.mozilla.net/main-workspace/translations-models-v2/068c956e-df98-4a92-afd3-c9558a5112c0.zst",
+      "compression": "zstd",
+      "downloadSha256": "f92b1bc63a78b5d6df7393bcd82116300adfc281f6dfc2b404f60f343828300f",
+      "size": 785200,
+      "sha256": "76daa9a49e393e50c865c889290e4dc36e9453e5e1ec9df7b9f3bc39ea782537"
+    },
+    {
+      "name": "LICENSE",
+      "url": "https://raw.githubusercontent.com/mozilla/translations/1de4a085d3a7afb625c51a60aabb5ad298e4059f/LICENSE",
+      "size": 16725,
+      "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+    }
+  ]
+}

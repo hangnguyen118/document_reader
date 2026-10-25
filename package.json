@@ -1,0 +1,41 @@
+{
+  "name": "folio-document-reader",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.15.0"
+  },
+  "scripts": {
+    "prepare:pdf": "node scripts/copy-pdf-worker.mjs",
+    "prepare:translation": "node scripts/prepare-translation.mjs",
+    "prepare:assets": "npm run prepare:pdf && npm run prepare:translation",
+    "postinstall": "npm run prepare:assets",
+    "dev": "npm run prepare:assets && next dev --port 3001",
+    "build": "npm run prepare:assets && next build",
+    "start": "next start --port 3001",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/unit/*.test.ts",
+    "test:e2e": "npm run build && playwright test",
+    "check": "npm run test && npm run typecheck && npm run build"
+  },
+  "dependencies": {
+    "@hangnguyen1902/theme": "0.1.0",
+    "idb": "^8.0.3",
+    "lucide-react": "^1.50.0",
+    "mammoth": "^1.13.0",
+    "next": "^16.3.8",
+    "pdfjs-dist": "^6.3.289",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "fake-indexeddb": "^6.2.4",
+    "jszip": "^3.10.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
