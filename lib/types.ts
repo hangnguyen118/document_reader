@@ -48,6 +48,7 @@ export interface VocabularyItem {
   createdAt: number;
 }
 export interface ReaderSettings {
+  showDefaultBooks: boolean;
   translationProvider: TranslationProvider;
   speechLanguage: "en-US" | "vi-VN";
   voiceURI: string;
@@ -65,6 +66,7 @@ export interface Snapshot {
   settings: ReaderSettings;
 }
 export const defaultSettings: ReaderSettings = {
+  showDefaultBooks: true,
   translationProvider: "auto", speechLanguage: "en-US", voiceURI: "", speechRate: 1,
   fontSize: 20, font: "serif", lineHeight: 1.9, lastDocumentId: null
 };

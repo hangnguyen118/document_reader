@@ -36,6 +36,12 @@ export async function loadSnapshot(): Promise<Snapshot> {
   } finally { db.close(); }
 }
 
+/** Read every persisted word, independently of UI filters or the provider snapshot. */
+export async function loadVocabulary(): Promise<VocabularyItem[]> {
+  const db = await database();
+  try { return await db.getAll("vocabulary"); } finally { db.close(); }
+}
+
 export async function saveRecord<T extends "documents" | "highlights" | "notes" | "vocabulary">(store: T, value: FolioDB[T]["value"]) {
   const db = await database();
   try { await db.put(store, value); } finally { db.close(); }

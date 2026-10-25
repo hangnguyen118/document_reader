@@ -23,6 +23,55 @@ test("concurrent document and preference patches preserve unrelated values", asy
   assert.equal(state.documents.find((item) => item.id === "attention")?.currentPage, 1);
   assert.equal(state.settings.fontSize, 22); assert.equal(state.settings.speechRate, 0.8);
 });
+test("default books remain visible for new and legacy preferences", async () => {
+  assert.equal((await loadSnapshot()).settings.showDefaultBooks, true);
+  const db = await database();
+  await db.put("settings", { fontSize: 24, translationProvider: "local" } as never, "preferences");
+  db.close();
+  const restored = await loadSnapshot();
+  assert.equal(restored.settings.showDefaultBooks, true);
+  assert.equal(restored.settings.fontSize, 24);
+  assert.equal(restored.settings.translationProvider, "local");
+  assert.equal((await persistSettings({ speechRate: 0.8 })).showDefaultBooks, true);
+});
+
+test("default book visibility persists across reopening and concurrent preference updates", async () => {
+  await loadSnapshot();
+  await Promise.all([
+    persistSettings({ showDefaultBooks: false }),
+    persistSettings({ fontSize: 22 }),
+    persistSettings({ speechRate: 0.8 })
+  ]);
+  await persistSettings({ font: "sans" });
+  const restored = await loadSnapshot();
+  assert.equal(restored.settings.showDefaultBooks, false);
+  assert.equal(restored.settings.fontSize, 22);
+  assert.equal(restored.settings.speechRate, 0.8);
+  assert.equal(restored.settings.font, "sans");
+  await persistSettings({ showDefaultBooks: true });
+  const shown = await loadSnapshot();
+  assert.deepEqual(shown.settings, { ...restored.settings, showDefaultBooks: true });
+});
+
+test("hiding and showing default books preserves every document and its reading data", async () => {
+  await loadSnapshot();
+  await patchDocument("attention", { favorite: true, currentPage: 2, lastReadAt: 100 });
+  await saveRecord("documents", { ...seedDocuments[0], id: "upload", uploaded: true, favorite: true, currentPage: 1 });
+  await saveRecord("notes", { id: "default-note", documentId: "attention", page: 0, quote: "quiet", body: "Remember this", createdAt: 0, updatedAt: 0 });
+  await saveRecord("highlights", { id: "default-highlight", documentId: "attention", page: 0, start: 0, end: 5, text: "quiet", color: "yellow", createdAt: 0 });
+  await saveRecord("vocabulary", { id: "default-word", term: "quiet", meaning: "yên tĩnh", documentId: "attention", documentTitle: seedDocuments[0].title, page: 0, context: "", createdAt: 0 });
+  await persistSettings({ lastDocumentId: "attention", fontSize: 24 });
+  const original = await loadSnapshot();
+  for (const showDefaultBooks of [false, true]) {
+    await persistSettings({ showDefaultBooks });
+    const restored = await loadSnapshot();
+    assert.deepEqual(restored.settings, { ...original.settings, showDefaultBooks });
+    for (const key of ["documents", "notes", "highlights", "vocabulary"] as const) {
+      assert.deepEqual(restored[key], original[key], `Changing visibility must preserve ${key}`);
+    }
+  }
+});
+
 test("removing an upload deletes its notes/highlights and retains saved words", async () => {
   const upload = { ...seedDocuments[0], id: "upload", uploaded: true };
   await saveRecord("documents", upload);

@@ -1,0 +1,25 @@
+.vocabulary-pagination {
+  display: grid;
+  gap: 14px;
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--hui-color-border);
+  color: var(--hui-color-text-muted);
+  font-size: 11px;
+}
+
+.vocabulary-pagination-settings { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.vocabulary-pagination-settings > p { margin: 0; min-width: 0; }
+.vocabulary-pagination label { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.vocabulary-pagination select { max-width: 100%; min-height: 36px; padding: 5px 8px; border: 1px solid var(--hui-color-border); border-radius: 5px; color: var(--hui-color-text); background: var(--hui-color-surface); font-size: 11px; cursor: pointer; }
+.vocabulary-pagination-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px; }
+.vocabulary-pagination-item { display: inline-flex; align-items: center; gap: 4px; }
+.vocabulary-pagination-controls .hui-button { min-width: 32px; min-height: 36px; padding: 0 6px; font-size: 11px; }
+.vocabulary-pagination-controls [aria-current="page"] { font-weight: 600; border-color: var(--hui-color-primary); }
+.vocabulary-pagination-gap { display: grid; place-items: center; min-width: 20px; }
+.vocabulary-pagination-jump { justify-self: center; }
+
+@media (max-width: 720px) {
+  .vocabulary-pagination-settings { justify-content: center; }
+  .vocabulary-pagination-settings > p { flex-basis: 100%; text-align: center; }
+}

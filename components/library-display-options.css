@@ -1,0 +1,9 @@
+.library-display-options { display: flex; justify-content: flex-end; margin-bottom: 4px; }
+.default-books-toggle { position: relative; display: inline-flex; align-items: center; gap: 9px; min-height: 36px; color: var(--hui-color-text-muted); font-size: 11px; cursor: pointer; }
+.default-books-toggle input { position: absolute; z-index: 1; left: 0; width: 36px; height: 22px; margin: 0; opacity: 0; cursor: inherit; }
+.default-books-toggle-track { flex-shrink: 0; width: 36px; height: 22px; border: 1px solid var(--hui-color-border); border-radius: 12px; background: var(--hui-color-surface-raised); }
+.default-books-toggle-track::after { content: ""; display: block; width: 16px; height: 16px; margin: 2px; border-radius: 50%; background: var(--hui-color-text-muted); transition: transform 150ms ease; }
+.default-books-toggle input:checked + .default-books-toggle-track { border-color: var(--hui-color-primary); background: var(--hui-color-primary); }
+.default-books-toggle input:checked + .default-books-toggle-track::after { transform: translateX(14px); background: var(--hui-color-on-primary); }
+.default-books-toggle input:focus-visible + .default-books-toggle-track { outline: 2px solid var(--hui-color-focus); outline-offset: 3px; }
+.default-books-toggle input:disabled ~ span { opacity: 0.5; }

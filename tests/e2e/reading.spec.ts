@@ -57,6 +57,7 @@ test("selected highlights and notes remain associated with the page", async ({ p
   await expect(page.getByTestId("reader-text")).toHaveText(original!);
   await selectText(page, "the soft rustle of leaves outside"); await page.getByRole("button", { name: "Add note about selected text" }).click();
   await page.getByLabel("Your note", { exact: true }).fill("Notice the little details around you."); await page.getByRole("button", { name: "Save note", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "A thought to keep", exact: true })).not.toBeVisible();
   await page.reload(); await expect(page.locator("mark.text-highlight")).toHaveText("particular kind of quiet");
   await page.getByRole("button", { name: "Toggle notebook" }).click(); await expect(page.locator(".margin-note")).toContainText("Notice the little details around you.");
   await page.getByRole("button", { name: "Highlights 1", exact: true }).click(); await page.getByRole("button", { name: "Set green highlight" }).click(); await expect(page.locator("mark.text-highlight")).toHaveClass(/highlight-green/);
