@@ -1,4 +1,7 @@
 :root { --folio-serif: Georgia, "Times New Roman", serif; }
+.reader-view { --folio-serif: var(--folio-reading-serif), var(--folio-reading-sans), "Times New Roman", serif; }
+.reader-text[data-reading-font="serif"], .reading-preview[data-reading-font="serif"] { font-family: var(--folio-reading-serif), var(--folio-reading-sans), "Times New Roman", serif; }
+.reader-text[data-reading-font="sans"], .reading-preview[data-reading-font="sans"] { font-family: var(--folio-reading-sans), "Segoe UI", Arial, sans-serif; }
 * { box-sizing: border-box; }
 body { margin: 0; color: var(--hui-color-text); background: var(--hui-color-background); font-family: var(--hui-font-family-sans); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
 button, input, textarea, select { font: inherit; }

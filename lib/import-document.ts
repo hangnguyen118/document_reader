@@ -1,4 +1,6 @@
-import { countWords, normalizeText, paginateText } from "./text";
+import { countWords, paginateText } from "./text";
+import { extractPdfText } from "./pdf-text";
+import { decodeDocumentText } from "./document-text";
 import type { DocumentType, ReadingDocument } from "./types";
 
 export const MAX_FILE_BYTES = 20 * 1024 * 1024;
@@ -20,7 +22,7 @@ export async function importDocument(file: File): Promise<ReadingDocument> {
       for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
         const page = await pdf.getPage(pageNumber);
         const content = await page.getTextContent();
-        pages.push(normalizeText(content.items.map((item) => "str" in item ? item.str + (item.hasEOL ? "\n" : " ") : "").join("")));
+        pages.push(extractPdfText(content.items));
         page.cleanup();
       }
     } catch (error) {
@@ -33,7 +35,7 @@ export async function importDocument(file: File): Promise<ReadingDocument> {
     const result = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
     pages = paginateText(result.value);
   } else {
-    pages = paginateText(await file.text());
+    pages = paginateText(decodeDocumentText(await file.arrayBuffer()));
   }
   if (!pages.length || !pages.some((page) => page.trim())) throw new Error("This document does not contain readable text.");
   if (pages.join("").length > 1_000_000) throw new Error("Please choose a document with fewer than one million characters.");

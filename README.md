@@ -8,6 +8,7 @@ Documents, reading progress, notes, highlights, vocabulary, and preferences are 
 
 - **Personal library:** Import PDF, DOCX, TXT, and Markdown files; search, filter, sort, paginate, favorite, and resume documents. Four bundled readings let you try the application immediately.
 - **Reading tools:** Restore your last page, jump between pages, and adjust the font, text size, and line spacing.
+- **Vietnamese typography:** Bundled Noto Serif and Noto Sans render composed and combining accents consistently. Selection, highlights, pagination, and speech keep whole letters together without rewriting saved text or annotation offsets.
 - **Annotations:** Highlight passages in three colors and create, edit, search, or delete notes linked to their source pages.
 - **Text to speech:** Listen to a page, an entire document, selected text, or vocabulary terms using browser speech synthesis, with pause, resume, and stop controls.
 - **On-device translation:** Translate English into Vietnamese using the browser Translator API or a bundled Mozilla/Bergamot model, with download progress, cancellation, retry, and cached results.
@@ -83,6 +84,8 @@ The production server also listens on port **3001**. The build prepares assets; 
 5. Use **Listen** to read the current page or whole document. Configure English or Vietnamese speech, a device voice, and playback speed in **Settings**.
 
 Use **Edit Book Name** in the library, Favorites, or reader to rename an uploaded document. Names are trimmed and must contain 1-200 characters; vocabulary source labels and searches use the current book name. Deleting an uploaded document also removes its notes and highlights, while saved vocabulary remains.
+
+DOCX text is extracted locally by Mammoth and retains its Unicode characters, punctuation, and paragraph breaks. TXT and Markdown support UTF-8 and BOM-marked UTF-16 LE/BE. PDF extraction preserves the spaces and line breaks supplied by PDF.js, including text runs split between a letter and its accents. Older PDF imports that already contain inserted spaces need to be imported again from the original file; existing saved content is not rewritten because doing so could change real spacing and annotation positions. Font fixes apply to existing DOCX books immediately.
 
 The **Show default books** switch controls the visibility of bundled readings in Library and Favorites, including counts and the continue-reading card. It is enabled by default and persists across reloads. Hiding these readings preserves their progress, favorites, notes, highlights, and vocabulary, and keeps uploaded documents visible.
 

@@ -6,6 +6,7 @@ test("library favorites persist and filter to the selected document", async ({ p
   await page.goto("/"); await expect(page.getByRole("heading", { name: "A little reading. A world of possibility." })).toBeVisible();
   await expect(page.locator(".document-card")).toHaveCount(4);
   await page.getByRole("button", { name: "Add The art of paying attention to favorites" }).click();
+  await expect(page.getByRole("button", { name: "Remove The art of paying attention from favorites" })).toHaveAttribute("aria-pressed", "true");
   await page.reload(); await page.getByRole("link", { name: "Favorites", exact: true }).click();
   await expect(page.locator(".document-card")).toHaveCount(1); await expect(page.locator(".document-title")).toHaveText("The art of paying attention");
   expect(errors).toEqual([]);
