@@ -17,7 +17,7 @@ for (const { name, bytes } of cases) {
     assert.equal(decodeDocumentText(new Uint8Array(bytes).buffer), content);
     for (const extension of ["txt", "md"]) {
       const document = await importDocument(new File([new Uint8Array(bytes)], `vietnamese.${extension}`));
-      assert.equal(document.pages.join(""), content.replace(/\r\n/g, "\n"));
+      assert.equal(document.pages.join(""), extension === "md" ? content : content.replace(/\r\n/g, "\n"));
       assert.equal(document.type, extension.toUpperCase());
       assert.ok(document.pages[0].includes("A\u0306\u0301"), "Decomposed accents remain unchanged");
     }

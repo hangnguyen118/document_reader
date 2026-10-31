@@ -11,12 +11,13 @@ test("library favorites persist and filter to the selected document", async ({ p
   await expect(page.locator(".document-card")).toHaveCount(1); await expect(page.locator(".document-title")).toHaveText("The art of paying attention");
   expect(errors).toEqual([]);
 });
-test("TXT and Markdown uploads persist as safe text", async ({ page }) => {
+test("TXT and Markdown uploads persist with safe Markdown preview", async ({ page }) => {
   await page.goto("/");
   await page.getByLabel("Upload documents").setInputFiles([{ name: "a-quiet-page.txt", mimeType: "text/plain", buffer: Buffer.from("A quiet page for reading.\n\nRemember this new idea.") }, { name: "markdown.md", mimeType: "text/markdown", buffer: Buffer.from("# A new chapter\n\n<script>window.injected = true</script>") }]);
   await expect(page.locator(".document-card")).toHaveCount(6); await page.reload(); await expect(page.locator(".document-card")).toHaveCount(6);
   await page.getByRole("link", { name: "Read markdown", exact: true }).click();
-  await expect(page.getByTestId("reader-text")).toContainText("<script>window.injected = true</script>");
+  await expect(page.getByTestId("reader-text").getByRole("heading", { name: "A new chapter", level: 1 })).toBeVisible();
+  await expect(page.getByTestId("reader-text").locator("script")).toHaveCount(0);
   expect(await page.evaluate(() => (window as unknown as { injected?: boolean }).injected)).toBeUndefined();
 });
 test("actual PDF pages and DOCX content are extracted locally", async ({ page }) => {

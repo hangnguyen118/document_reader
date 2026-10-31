@@ -34,14 +34,27 @@ export async function importDocument(file: File): Promise<ReadingDocument> {
     const mammoth = await import("mammoth/mammoth.browser");
     const result = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
     pages = paginateText(result.value);
+  } else if (type === "MD") {
+    let source: string;
+    try {
+      source = decodeDocumentText(await file.arrayBuffer(), { fatal: true });
+    } catch {
+      throw new Error("This Markdown file could not be read. Choose a UTF-8 or BOM-marked UTF-16 text file.");
+    }
+    if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u.test(source)) {
+      throw new Error("This Markdown file contains binary data. Choose a Markdown text file.");
+    }
+    // Markdown constructs can span any number of lines. Keep the original source
+    // together so pagination cannot split fences, lists, tables, or references.
+    pages = [source];
   } else {
     pages = paginateText(decodeDocumentText(await file.arrayBuffer()));
   }
-  if (!pages.length || !pages.some((page) => page.trim())) throw new Error("This document does not contain readable text.");
+  if (type !== "MD" && (!pages.length || !pages.some((page) => page.trim()))) throw new Error("This document does not contain readable text.");
   if (pages.join("").length > 1_000_000) throw new Error("Please choose a document with fewer than one million characters.");
   return {
     id: crypto.randomUUID(), title: file.name.replace(/\.[^.]+$/, "").replace(/[_-]/g, " "), type, pages,
-    author: "Your upload", description: `${type} document · ${pages.length} ${pages.length === 1 ? "page" : "pages"}`,
+    author: "Your upload", description: type === "MD" ? "Markdown document · Preview" : `${type} document · ${pages.length} ${pages.length === 1 ? "page" : "pages"}`,
     category: "Personal library", wordCount: countWords(pages.join("\n")), uploaded: true, favorite: false,
     currentPage: 0, createdAt: Date.now(), lastReadAt: null, cover: "sand"
   };

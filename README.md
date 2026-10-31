@@ -8,6 +8,7 @@ Documents, reading progress, notes, highlights, vocabulary, and preferences are 
 
 - **Personal library:** Import PDF, DOCX, TXT, and Markdown files; search, filter, sort, paginate, favorite, and resume documents. Four bundled readings let you try the application immediately.
 - **Reading tools:** Restore your last page, jump between pages, and adjust the font, text size, and line spacing.
+- **Markdown preview:** Read formatted Markdown and GFM with syntax-highlighted, copyable code blocks, heading links, a collapsible table of contents, and responsive tables and images in light or dark mode.
 - **Vietnamese typography:** Bundled Noto Serif and Noto Sans render composed and combining accents consistently. Selection, highlights, pagination, and speech keep whole letters together without rewriting saved text or annotation offsets.
 - **Annotations:** Highlight passages in three colors and create, edit, search, or delete notes linked to their source pages.
 - **Text to speech:** Listen to a page, an entire document, selected text, or vocabulary terms using browser speech synthesis, with pause, resume, and stop controls.
@@ -29,6 +30,7 @@ Documents, reading progress, notes, highlights, vocabulary, and preferences are 
 | Styling and UI | CSS, `@hangnguyen1902/theme` pinned to `0.1.0`, `lucide-react` |
 | Browser storage | IndexedDB through `idb`; localStorage for the theme |
 | Document extraction | `pdfjs-dist` for PDF; `mammoth` for DOCX |
+| Markdown preview | unified, `remark-parse`, `remark-gfm`, `remark-rehype`, `hast-util-to-jsx-runtime`, `github-slugger`, Shiki |
 | Translation | Browser Translator API; Mozilla/Bergamot WebAssembly SIMD in a Web Worker |
 | Speech | Web Speech API (`speechSynthesis`) |
 | Export | `write-excel-file`, `jspdf`, `jspdf-autotable`, bundled Noto Sans font |
@@ -79,7 +81,7 @@ The production server also listens on port **3001**. The build prepares assets; 
 
 1. Open **My library** and choose a bundled reading, upload files, or drag files onto the upload area. Supported extensions are `.pdf`, `.docx`, `.txt`, `.md`, and `.markdown`.
 2. Search, filter, or sort your library; use the heart button to add a document to **Favorites**. Library and Favorites lists display 12 documents per page.
-3. Open a document to read. Page navigation saves your position so you can resume later. Adjust typography in the reader or **Settings**.
+3. Open a document to read. Page navigation saves your position so you can resume later; Markdown opens as one continuous preview. Adjust typography in the reader or **Settings**.
 4. Select text to **Listen**, **Highlight**, **Translate**, **Save word**, or add a note. Use the reader notebook to revisit notes and highlights, or **My notes** to search and manage notes across documents.
 5. Use **Listen** to read the current page or whole document. Configure English or Vietnamese speech, a device voice, and playback speed in **Settings**.
 
@@ -88,6 +90,14 @@ Use **Edit Book Name** in the library, Favorites, or reader to rename an uploade
 DOCX text is extracted locally by Mammoth and retains its Unicode characters, punctuation, and paragraph breaks. TXT and Markdown support UTF-8 and BOM-marked UTF-16 LE/BE. PDF extraction preserves the spaces and line breaks supplied by PDF.js, including text runs split between a letter and its accents. Older PDF imports that already contain inserted spaces need to be imported again from the original file; existing saved content is not rewritten because doing so could change real spacing and annotation positions. Font fixes apply to existing DOCX books immediately.
 
 The **Show default books** switch controls the visibility of bundled readings in Library and Favorites, including counts and the continue-reading card. It is enabled by default and persists across reloads. Hiding these readings preserves their progress, favorites, notes, highlights, and vocabulary, and keeps uploaded documents visible.
+
+### Read Markdown
+
+Upload a `.md` or `.markdown` file through the existing library uploader. The preview supports headings H1-H6, paragraphs, bold, italic, strikethrough, nested ordered and unordered lists, blockquotes, horizontal rules, inline code, fenced and indented code blocks, links, images, GFM tables, and task-list checkboxes. Open the table of contents or follow heading links to navigate a long document. Checkboxes reflect the source and are read-only.
+
+Code blocks use Shiki syntax highlighting for common languages including JavaScript, TypeScript, HTML, CSS, JSON, Python, and Bash, with light and dark colors. Use **Copy** to copy the code; long lines scroll horizontally. Unspecified or unsupported languages remain readable plain code. Selection actions, notes, highlights, vocabulary, and speech operate on the rendered text.
+
+The importer retains the exact decoded source, including line endings, indentation, and Unicode, without converting saved content to HTML. Previously imported Markdown pages are joined for preview without rewriting stored pages. Empty files show an empty preview; invalid Unicode, binary data, and read failures display an upload error. The renderer omits raw HTML and filters unsafe link and image protocols. Parsing and syntax-highlighting modules load only when needed for Markdown; parsing is memoized by source. The unified plugin pipeline provides an extension point for additional Markdown syntax.
 
 ### Save and practice vocabulary
 
@@ -169,10 +179,15 @@ app/                         App Router pages and global styles
   layout.tsx                 Root layout, metadata, providers, and navigation shell
 components/                  Views, dialogs, pagination, and shared UI
   providers.tsx              React state and persistence operations
+  markdown-preview.tsx       Markdown rendering, contents, code copy, and annotations
+  markdown-preview.css       Scoped Markdown typography and responsive styling
 hooks/                       Speech playback and translation request lifecycles
 lib/
   database.ts                IndexedDB schema and persistence
   import-document.ts         File validation and local text extraction
+  markdown.ts                GFM parsing, heading anchors, safe URLs, and legacy highlights
+  markdown-highlight.ts      Lazy Shiki highlighter and common language grammars
+  markdown-selection.ts      Rendered-text selection offsets, excluding preview controls
   translation.ts             Browser translation, fallback, and result caching
   local-translation.ts       Downloaded-model worker client
   vocabulary-export.ts       Excel and PDF generation
@@ -234,7 +249,7 @@ Folio uses the IndexedDB database **`folio-reading`**, schema version **1**:
 | Store | Contents |
 | --- | --- |
 | `documents` | Extracted pages, metadata, favorites, and reading position |
-| `highlights` | Source document/page, text offsets, text, and color |
+| `highlights` | Source document/page, text offsets, text, and color; new Markdown annotations identify rendered-text coordinates |
 | `notes` | Source document/page, quotation, and note body |
 | `vocabulary` | Terms, meanings, context, and source references |
 | `settings` | Reader preferences under the `preferences` key |
@@ -249,7 +264,9 @@ The theme is stored separately in localStorage under **`folio-theme`**. Saves ar
 ## Limitations
 
 - Imports accept files up to **20 MiB** (shown as 20 MB in the UI) and **1,000,000 extracted characters**. PDF extraction processes every page without a separate page-count limit.
-- PDF and DOCX imports extract text; original layouts and images are not preserved. Markdown is displayed as plain text.
+- PDF and DOCX imports extract text; original layouts and images are not preserved.
+- Markdown does not yet render Mermaid diagrams or LaTeX formulas. Mermaid fences display as copyable plain code. Code blocks longer than 100,000 characters skip syntax highlighting to limit processing cost.
+- Markdown image and document paths resolve against the website URL. Uploading a Markdown file does not import sibling files or folders; use available website paths or hosted images and links.
 - Scanned PDFs without selectable text require external OCR. Password-protected PDFs require an unlocked copy.
 - Translation supports **English to Vietnamese** only and accepts **1-5,000 characters** per request. Longer selections are rejected rather than truncated. Machine-generated meanings are editable suggestions that need review, especially for ambiguous words and specialist terms.
 - Downloaded translation requires WebAssembly SIMD, and its speed and memory usage depend on the device. Manual vocabulary entry remains available if translation fails.

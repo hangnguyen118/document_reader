@@ -20,6 +20,8 @@
   },
   "dependencies": {
     "@hangnguyen1902/theme": "0.1.0",
+    "github-slugger": "^2.0.0",
+    "hast-util-to-jsx-runtime": "^2.3.7",
     "idb": "^8.0.3",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.9",
@@ -29,6 +31,11 @@
     "pdfjs-dist": "^6.3.289",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "remark-rehype": "^11.1.2",
+    "shiki": "^4.5.0",
+    "unified": "^11.0.5",
     "write-excel-file": "^4.1.1"
   },
   "devDependencies": {

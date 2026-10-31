@@ -21,7 +21,7 @@ async function expectIntactText(page: Page, text: string) {
   expect(splitGraphemes).toEqual([]);
 }
 
-async function expectReadingFont(page: Page, font: "serif" | "sans") {
+async function expectReadingFont(page: Page, font: "serif" | "sans", glyphSelector = '[data-testid="reader-text"] > :first-child') {
   const reader = page.getByTestId("reader-text");
   await expect(reader).toHaveAttribute("data-reading-font", font);
   const loaded = await reader.evaluate(async (root) => {
@@ -38,7 +38,7 @@ async function expectReadingFont(page: Page, font: "serif" | "sans") {
     await client.send("DOM.enable");
     await client.send("CSS.enable");
     const { root } = await client.send("DOM.getDocument");
-    const { nodeId } = await client.send("DOM.querySelector", { nodeId: root.nodeId, selector: '[data-testid="reader-text"] > :first-child' });
+    const { nodeId } = await client.send("DOM.querySelector", { nodeId: root.nodeId, selector: glyphSelector });
     const { fonts } = await client.send("CSS.getPlatformFontsForNode", { nodeId });
     expect(fonts.length).toBeGreaterThan(0);
     for (const face of fonts) {
@@ -58,10 +58,18 @@ test("Vietnamese UTF-8 TXT, Markdown and DOCX retain composed and combining text
   await expect(page.locator(".document-card")).toHaveCount(7);
   for (const name of ["vietnamese txt", "vietnamese markdown", "vietnamese docx"]) {
     await page.getByRole("link", { name: `Read ${name}`, exact: true }).click();
-    await expectIntactText(page, source);
-    await expectReadingFont(page, "serif");
+    if (name === "vietnamese markdown") {
+      await expect(page.locator(".markdown-preview")).toContainText(capitals);
+      await expect(page.locator(".markdown-preview")).toContainText(decomposed.split("\n")[0]);
+    } else await expectIntactText(page, source);
+    if (name === "vietnamese markdown") {
+      await expectReadingFont(page, "serif", ".markdown-preview p > span:first-child");
+    } else await expectReadingFont(page, "serif");
     await page.reload();
-    await expectIntactText(page, source);
+    if (name === "vietnamese markdown") {
+      await expect(page.locator(".markdown-preview")).toContainText(capitals);
+      await expect(page.locator(".markdown-preview")).toContainText(decomposed.split("\n")[0]);
+    } else await expectIntactText(page, source);
     await page.getByRole("link", { name: "Back to library", exact: true }).click();
   }
 });

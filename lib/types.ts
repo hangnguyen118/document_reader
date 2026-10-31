@@ -26,6 +26,8 @@ export interface Highlight {
   end: number;
   text: string;
   color: HighlightColor;
+  /** Markdown previews use rendered text offsets; omitted values refer to source text. */
+  coordinateSpace?: "markdown-preview";
   createdAt: number;
 }
 export interface Note {

@@ -28,7 +28,7 @@ test("overlapping highlights render without changing document text", () => {
   assert.ok(parts.every((part) => part.text === text.slice(part.start, part.end)));
   assert.deepEqual(segmentText(text, [{ start: -1, end: 100 }]).map((part) => part.text), [text]);
 });
-test("TXT and Markdown uploads remain plain text with stable pages", async () => {
+test("Markdown uploads retain their original source for preview without storing rendered HTML", async () => {
   const content = "# A quiet page\n\n<script>window.injected = true</script>\n\nTime to read.";
   const result = await importDocument(new File([content], "my-reading.md"));
   assert.equal(result.type, "MD"); assert.equal(result.title, "my reading");
