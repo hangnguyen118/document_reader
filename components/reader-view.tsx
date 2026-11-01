@@ -1,9 +1,9 @@
 "use client";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, BookmarkPlus, Check, ChevronDown, ChevronLeft, ChevronRight, Heart, Highlighter, Languages, Minus, NotebookPen, Pause, Pencil, Play, Plus, Square, Trash2, Volume2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookmarkPlus, Check, ChevronDown, ChevronLeft, ChevronRight, Heart, Highlighter, Languages, Minus, NotebookPen, Pause, Pencil, Play, Plus, Settings, Square, Trash2, Volume2, X } from "lucide-react";
 import { Badge, Button, Spinner } from "@hangnguyen1902/theme";
 import { useReading } from "./providers";
 import { Loading } from "./loading";
@@ -25,6 +25,8 @@ interface SelectionTarget { start: number; end: number; text: string; page: numb
 export function ReaderView({ documentId }: { documentId: string }) {
   const { documents, highlights, notes, settings, ready, updateDocument, updateSettings, saveHighlight, removeHighlight, removeNote, notify } = useReading();
   const searchParams = useSearchParams(); const requestedPage = searchParams.get("page");
+  const reading = usePathname().startsWith("/read/");
+  const appliedPosition = useRef<{ documentId: string; requestedPage: string | null } | null>(null);
   const document = documents.find((item) => item.id === documentId);
   const markdownSource = useMemo(() => document?.type === "MD" ? document.pages.join("") : "", [document?.type, document?.pages]);
   const [markdownReading, setMarkdownReading] = useState<{ source: string; text: string } | null>(null);
@@ -63,7 +65,11 @@ export function ReaderView({ documentId }: { documentId: string }) {
   }, [document?.type, page]);
 
   useEffect(() => {
-    if (!ready || !document) return;
+    if (!reading || !ready || !document) return;
+    // The intercepted Settings route keeps this reader mounted. Returning to the
+    // same URL must not reapply an old ?page= after the reader has turned pages.
+    if (appliedPosition.current?.documentId === document.id && appliedPosition.current.requestedPage === requestedPage) return;
+    appliedPosition.current = { documentId: document.id, requestedPage };
     const requested = requestedPage === null ? document.currentPage : Number(requestedPage) - 1;
     const initialPage = document.type === "MD" ? 0 : Number.isFinite(requested) ? Math.max(0, Math.min(document.pages.length - 1, Math.floor(requested))) : document.currentPage;
     setPage(initialPage); pageRef.current = initialPage;
@@ -71,7 +77,8 @@ export function ReaderView({ documentId }: { documentId: string }) {
     void updateSettings({ lastDocumentId: document.id }).catch(() => {});
     // Entering the document or following a saved page updates the position once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, document?.id, requestedPage, updateDocument, updateSettings]);
+  }, [reading, ready, document?.id, requestedPage, updateDocument, updateSettings]);
+  useEffect(() => { if (!reading) speech.stop(); }, [reading, speech.stop]);
   useEffect(() => { speech.stop(); setSelection(null); setTranslationTarget(null); setEditingBookId(null); clearTranslation(); }, [documentId, speech.stop, clearTranslation]);
   useEffect(() => {
     let frame = 0;
@@ -131,7 +138,7 @@ export function ReaderView({ documentId }: { documentId: string }) {
   const segments = isMarkdown ? [] : segmentText(text, [...currentHighlights, ...(speechRange ? [speechRange] : [])]);
 
   return <div className="reader-view"><div className="reader-toolbar"><Link href="/" className="text-link"><ArrowLeft size={15} /><span>Back to library</span></Link><div className="reader-title-small">{document.title}</div><div className="reader-tools"><button type="button" className={`icon-button ${document.favorite ? "favorited" : ""}`} aria-label={document.favorite ? "Remove from favorites" : "Add to favorites"} aria-pressed={document.favorite} onClick={() => { void updateDocument(document.id, { favorite: !document.favorite }).catch(() => {}); }}><Heart size={17} fill={document.favorite ? "currentColor" : "none"} /></button><button type="button" className={`icon-button ${notebook ? "is-active" : ""}`} aria-label="Toggle notebook" aria-expanded={notebook} onClick={() => setNotebook(!notebook)}><NotebookPen size={17} /></button><span className="toolbar-divider" /><button type="button" className="icon-button" aria-label="Decrease reading font size" disabled={settings.fontSize <= 16} onClick={() => { void updateSettings({ fontSize: settings.fontSize - 2 }).catch(() => {}); }}><Minus size={13} /></button><span className="font-size-label">Aa</span><button type="button" className="icon-button" aria-label="Increase reading font size" disabled={settings.fontSize >= 28} onClick={() => { void updateSettings({ fontSize: settings.fontSize + 2 }).catch(() => {}); }}><Plus size={13} /></button></div></div>
-    <div className={`reader-layout ${notebook ? "with-notebook" : ""}`}><div className="reader-column"><div className="reading-meta"><span className="page-eyebrow">{document.category.toUpperCase()}</span><span>{document.type} · {isMarkdown ? "Preview" : `${document.pages.length} pages`}</span></div><header className="reading-heading"><div className="reading-title-row"><h1>{document.title}</h1>{document.uploaded && <button type="button" className="text-link edit-book-name" onClick={() => { clearSelection(); setEditingBookId(document.id); }}><Pencil size={13} />Edit Book Name</button>}</div><p>{isMarkdown ? "Markdown document · Preview" : document.description}</p><span>By {document.author}<span className="meta-dot" />{Math.max(1, Math.ceil(document.wordCount / 200))} min read</span></header><div className="listening-controls"><div className="listen-buttons"><Button size="sm" variant="soft" leadingIcon={speech.status === "playing" ? <Pause size={14} /> : <Play size={14} fill="currentColor" />} onClick={startListening} disabled={!speech.supported || (isMarkdown && !text.trim())}>{speech.status === "playing" ? "Pause" : speech.status === "paused" ? "Resume" : "Listen"}</Button>{!isMarkdown && <select aria-label="Reading scope" value={scope} disabled={speech.status !== "idle"} onChange={(event) => setScope(event.target.value)}><option value="page">This page</option><option value="document">Whole document</option></select>}{speech.status !== "idle" && <button type="button" className="icon-button" aria-label="Stop reading" onClick={speech.stop}><Square size={13} fill="currentColor" /></button>}</div><Link href="/settings" className="speech-setting">{settings.speechLanguage.startsWith("en") ? "English" : "Vietnamese"}<span className="meta-dot" />{settings.speechRate.toFixed(1)}×</Link></div>{speech.error && <p className="form-error" role="alert">{speech.error}</p>}
+    <div className={`reader-layout ${notebook ? "with-notebook" : ""}`}><div className="reader-column"><div className="reading-meta"><span className="page-eyebrow">{document.category.toUpperCase()}</span><span>{document.type} · {isMarkdown ? "Preview" : `${document.pages.length} pages`}</span></div><header className="reading-heading"><div className="reading-title-row"><h1>{document.title}</h1>{document.uploaded && <button type="button" className="text-link edit-book-name" onClick={() => { clearSelection(); setEditingBookId(document.id); }}><Pencil size={13} />Edit Book Name</button>}</div><p>{isMarkdown ? "Markdown document · Preview" : document.description}</p><span>By {document.author}<span className="meta-dot" />{Math.max(1, Math.ceil(document.wordCount / 200))} min read</span></header><div className="listening-controls"><div className="listen-buttons"><Button size="sm" variant="soft" leadingIcon={speech.status === "playing" ? <Pause size={14} /> : <Play size={14} fill="currentColor" />} onClick={startListening} disabled={!speech.supported || (isMarkdown && !text.trim())}>{speech.status === "playing" ? "Pause" : speech.status === "paused" ? "Resume" : "Listen"}</Button>{!isMarkdown && <select aria-label="Reading scope" value={scope} disabled={speech.status !== "idle"} onChange={(event) => setScope(event.target.value)}><option value="page">This page</option><option value="document">Whole document</option></select>}{speech.status !== "idle" && <button type="button" className="icon-button" aria-label="Stop reading" onClick={speech.stop}><Square size={13} fill="currentColor" /></button>}</div><Link href="/settings" className="speech-setting" aria-label="Reading settings" title="Reading settings"><Settings size={14} aria-hidden="true" />{settings.speechLanguage.startsWith("en") ? "English" : "Vietnamese"}<span className="meta-dot" />{settings.speechRate.toFixed(1)}×</Link></div>{speech.error && <p className="form-error" role="alert">{speech.error}</p>}
     <div className={`reader-text${isMarkdown ? " markdown-reader-text" : ""}`} data-testid="reader-text" data-reading-font={settings.font} ref={textElement} style={{ fontSize: settings.fontSize, lineHeight: settings.lineHeight }} onMouseUp={captureSelection} onTouchEnd={() => setTimeout(captureSelection, 40)} onKeyUp={captureSelection}>{isMarkdown ? <MarkdownPreview source={markdownSource} highlights={currentHighlights} activeHighlight={activeHighlight} speechRange={speechRange} onHighlightClick={showHighlight} onTextReady={onMarkdownTextReady} /> : segments.map((segment) => {
       const highlight = currentHighlights.find((item) => segment.ranges.some((range) => range.id === item.id));
       const speaking = segment.ranges.some((range) => range.id === "speech");
@@ -162,7 +169,7 @@ export function ReaderView({ documentId }: { documentId: string }) {
         <div className="translation-retry-actions"><button type="button" className="text-link" onClick={() => {
           translator.prepare?.(settings.translationProvider);
           if (translationTarget) void translator.translate(translationTarget.text, settings.translationProvider);
-        }}>Try translation again</button><Link href="/settings" className="text-link">Translation settings <ArrowRight size={13} /></Link></div>
+        }}>Try translation again</button><Link href="/settings" className="text-link" onNavigate={() => { setTranslationTarget(null); clearTranslation(); }}>Translation settings <ArrowRight size={13} /></Link></div>
       </div> : <><div className="translation-result" lang="vi">{translator.translation}</div>
         {translator.engine && <p className="translation-engine">{translator.cached ? "Saved translation · " : ""}{translator.engine === "browser" ? "Browser translator" : "Downloaded model"}</p>}
       </>}
