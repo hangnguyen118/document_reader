@@ -7,7 +7,7 @@ async function seedLongWord(page: Page) {
   await page.goto("/vocabulary");
   await expect(page.getByRole("button", { name: "Add a word", exact: true })).toBeVisible();
   await page.evaluate((term) => new Promise<void>((resolve, reject) => {
-    const request = indexedDB.open("folio-reading", 1);
+    const request = indexedDB.open("folio-reading");
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const db = request.result;

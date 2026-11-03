@@ -1,4 +1,11 @@
 import { segmentGraphemes, type GraphemeSegments } from "./graphemes";
+import type { ReadingDocument } from "./types";
+
+export function documentPageCount(document: ReadingDocument): number {
+  if (document.type !== "MD") return Math.max(1, document.pages.length);
+  const count = document.markdownPageCount;
+  return typeof count === "number" && Number.isSafeInteger(count) && count > 0 ? count : 1;
+}
 
 export const countWords = (text: string) => text.trim() ? text.trim().split(/\s+/u).length : 0;
 export const normalizeText = (text: string) => text.replace(/\r\n?/g, "\n").replace(/\u0000/g, "").trim();

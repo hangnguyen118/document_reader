@@ -13,7 +13,7 @@ function vocabulary(count: number): VocabularyItem[] {
 
 async function persistWords(page: Page, records: VocabularyItem[]) {
   await page.evaluate((records) => new Promise<void>((resolve, reject) => {
-    const request = indexedDB.open("folio-reading", 1);
+    const request = indexedDB.open("folio-reading");
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const db = request.result;

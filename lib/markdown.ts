@@ -3,12 +3,21 @@ import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 import remarkRehype from "remark-rehype";
 import GithubSlugger from "github-slugger";
-import type { Element, Root, RootContent, Text } from "hast";
-import type { Highlight } from "./types";
+import type { Element, ElementContent, Root, RootContent, Text } from "hast";
+import { segmentGraphemes } from "./graphemes";
 
-export interface MarkdownHeading { id: string; text: string; depth: number }
+export { markdownHighlightRanges, markdownPageForOffset, markdownPreviewOffset } from "./markdown-pagination";
+
+declare module "hast" {
+  interface ElementData { markdownImageSource?: string }
+}
+
+export interface MarkdownHeading { id: string; text: string; depth: number; page: number }
 interface TextRun { start: number; end: number; sourceStart?: number; sourceEnd?: number }
-export interface MarkdownDocument { tree: Root; text: string; headings: MarkdownHeading[]; runs: TextRun[] }
+export interface MarkdownPage { tree: Root; start: number; end: number; text: string; imageSources: string[] }
+export interface MarkdownDocument { tree: Root; text: string; headings: MarkdownHeading[]; runs: TextRun[]; imageSources: string[]; pages: MarkdownPage[] }
+export const MARKDOWN_PAGE_TARGET = 2600;
+const IMAGE_PAGE_WEIGHT = 400;
 
 // No raw HTML or MDX evaluation: only the elements produced by these plugins
 // reach React. Additional syntax can be added here without changing the reader.
@@ -35,6 +44,7 @@ export function parseMarkdown(source: string): MarkdownDocument {
   const headings: MarkdownHeading[] = [];
   const runs: TextRun[] = [];
   const chunks: string[] = [];
+  const imageSources: string[] = [];
   let offset = 0;
   const slugger = new GithubSlugger();
 
@@ -62,7 +72,7 @@ export function parseMarkdown(source: string): MarkdownDocument {
         const text = markdownNodeText(node);
         const id = `md-${slugger.slug(text)}`;
         node.properties.id = id;
-        headings.push({ id, text, depth: Number(heading[1]) });
+        headings.push({ id, text, depth: Number(heading[1]), page: 0 });
       }
       if (node.tagName === "a") {
         const href = safeMarkdownUrl(String(node.properties.href ?? ""));
@@ -70,7 +80,12 @@ export function parseMarkdown(source: string): MarkdownDocument {
         node.properties.rel = ["noopener", "noreferrer"];
       }
       if (node.tagName === "img") {
-        const src = safeMarkdownUrl(String(node.properties.src ?? ""), true);
+        const originalSource = String(node.properties.src ?? "");
+        imageSources.push(originalSource);
+        // Keep the original URL outside DOM properties for the internal asset
+        // renderer, including invalid URLs which need an explanatory placeholder.
+        node.data = { ...node.data, markdownImageSource: originalSource };
+        const src = safeMarkdownUrl(originalSource, true);
         if (src) node.properties.src = src; else delete node.properties.src;
         node.properties.loading = "lazy";
         node.properties.decoding = "async";
@@ -90,21 +105,110 @@ export function parseMarkdown(source: string): MarkdownDocument {
     });
   }
   prepare(tree);
-  return { tree, text: chunks.join(""), headings, runs };
+  const text = chunks.join("");
+  const pages = paginateMarkdownTree(tree, text);
+  const headingPages = new Map<string, number>();
+  pages.forEach((page, index) => visitElements(page.tree, (node) => {
+    if (/^h[1-6]$/.test(node.tagName)) headingPages.set(String(node.properties.id), index);
+  }));
+  for (const heading of headings) heading.page = headingPages.get(heading.id) ?? 0;
+  return { tree, text, headings, runs, imageSources, pages };
 }
 
-/** Keep annotations saved before preview support, without rewriting saved offsets. */
-export function markdownHighlightRanges(model: MarkdownDocument, highlights: Highlight[]): Highlight[] {
-  return highlights.flatMap((highlight) => {
-    if (highlight.coordinateSpace === "markdown-preview") return [highlight];
-    const run = model.runs.find((item) => item.sourceStart !== undefined && item.sourceEnd !== undefined && item.sourceStart <= highlight.start && item.sourceEnd >= highlight.start);
-    if (!run || !highlight.text) return [];
-    const estimated = run.start + Math.min(highlight.start - run.sourceStart!, run.end - run.start);
-    let candidate = model.text.indexOf(highlight.text), nearest = -1;
-    while (candidate >= 0) {
-      if (nearest < 0 || Math.abs(candidate - estimated) < Math.abs(nearest - estimated)) nearest = candidate;
-      candidate = model.text.indexOf(highlight.text, candidate + 1);
-    }
-    return nearest < 0 ? [] : [{ ...highlight, start: nearest, end: nearest + highlight.text.length }];
+function visitElements(node: Root | RootContent, visit: (node: Element) => void) {
+  if (node.type === "element") visit(node);
+  if ("children" in node) for (const child of node.children) visitElements(child, visit);
+}
+
+function imageSourcesIn(node: Root | RootContent): string[] {
+  const sources: string[] = [];
+  visitElements(node, (element) => {
+    if (element.tagName === "img") sources.push(element.data?.markdownImageSource ?? "");
   });
+  return sources;
+}
+
+/** Clone just the intersecting inline tree, retaining document-global markers. */
+function sliceParagraph(node: Element, start: number, end: number, length: number): Element {
+  let offset = 0;
+  function slice(child: ElementContent): ElementContent | undefined {
+    const childStart = offset;
+    const childLength = markdownNodeText(child).length;
+    const childEnd = childStart + childLength;
+    if (childLength === 0) {
+      return childStart >= start && (childStart < end || childStart === end && end === length) ? child : undefined;
+    }
+    if (childEnd <= start || childStart >= end) { offset = childEnd; return undefined; }
+    if (child.type === "text") {
+      offset = childEnd;
+      return { ...child, value: child.value.slice(Math.max(0, start - childStart), Math.min(childLength, end - childStart)) };
+    }
+    if (child.type !== "element") { offset = childEnd; return child; }
+    const children = child.children.flatMap((item) => { const result = slice(item); return result ? [result] : []; });
+    const properties = { ...child.properties };
+    if (properties.dataMarkdownStart !== undefined) properties.dataMarkdownStart = Number(properties.dataMarkdownStart) + Math.max(0, start - childStart);
+    return children.length ? { ...child, properties, children } : undefined;
+  }
+  return { ...node, children: node.children.flatMap((child) => { const result = slice(child); return result ? [result] : []; }) };
+}
+
+/** A long paragraph may span pages without reparsing or flattening formatting. */
+function paragraphFragments(node: RootContent): RootContent[] {
+  if (node.type !== "element" || node.tagName !== "p") return [node];
+  const text = markdownNodeText(node);
+  if (text.length <= MARKDOWN_PAGE_TARGET) return [node];
+  const graphemes = segmentGraphemes(text);
+  const fragments: RootContent[] = [];
+  let start = 0;
+  while (text.length - start > MARKDOWN_PAGE_TARGET) {
+    const limit = start + MARKDOWN_PAGE_TARGET;
+    let end = Math.max(text.lastIndexOf(". ", limit), text.lastIndexOf("? ", limit), text.lastIndexOf("! ", limit)) + 1;
+    if (end < start + MARKDOWN_PAGE_TARGET / 2) end = text.lastIndexOf(" ", limit);
+    if (end <= start) end = limit;
+    const segment = graphemes.containing(end);
+    end = segment ? segment.index > start ? segment.index : segment.index + segment.segment.length : end;
+    fragments.push(sliceParagraph(node, start, end, text.length));
+    start = end;
+  }
+  if (start < text.length) fragments.push(sliceParagraph(node, start, text.length, text.length));
+  return fragments;
+}
+
+function paginateMarkdownTree(tree: Root, text: string): MarkdownPage[] {
+  interface Unit { nodes: RootContent[]; weight: number }
+  const units: Unit[] = [];
+  const leading: RootContent[] = [];
+  let headingPending = false;
+  for (const original of tree.children) {
+    const whitespace = original.type === "text" || original.type === "element" && original.tagName === "span";
+    if (whitespace && !markdownNodeText(original).trim()) {
+      if (units.length) { units.at(-1)!.nodes.push(original); units.at(-1)!.weight += markdownNodeText(original).length; }
+      else leading.push(original);
+      continue;
+    }
+    const heading = original.type === "element" && /^h[1-6]$/.test(original.tagName);
+    for (const fragment of paragraphFragments(original)) {
+      const weight = markdownNodeText(fragment).length + imageSourcesIn(fragment).length * IMAGE_PAGE_WEIGHT;
+      if (headingPending && units.length) {
+        units.at(-1)!.nodes.push(fragment); units.at(-1)!.weight += weight;
+      } else units.push({ nodes: [...leading.splice(0), fragment], weight });
+      headingPending = heading;
+    }
+  }
+  const pages: MarkdownPage[] = [];
+  let nodes: RootContent[] = [];
+  let weight = 0;
+  let offset = 0;
+  function finish() {
+    const pageTree: Root = { type: "root", children: nodes };
+    const end = offset + markdownNodeText(pageTree).length;
+    pages.push({ tree: pageTree, start: offset, end, text: text.slice(offset, end), imageSources: imageSourcesIn(pageTree) });
+    offset = end; nodes = []; weight = 0;
+  }
+  for (const unit of units) {
+    if (nodes.length && weight + unit.weight > MARKDOWN_PAGE_TARGET) finish();
+    nodes.push(...unit.nodes); weight += unit.weight;
+  }
+  if (nodes.length || !pages.length) { nodes.push(...leading); finish(); }
+  return pages;
 }

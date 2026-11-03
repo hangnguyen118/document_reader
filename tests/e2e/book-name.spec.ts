@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { seedDocuments } from "../../lib/seed";
 import { selectText, textPDF } from "./helpers";
 
 const firstPage = "A quiet first page leaves room for a new idea.";
@@ -6,11 +7,11 @@ const secondPage = "A quiet second page has a story to remember.";
 
 async function uploadBook(page: Page, filename = "original-book.pdf") {
   await page.goto("/");
-  await expect(page.locator(".document-card")).toHaveCount(4);
+  await expect(page.locator(".document-card")).toHaveCount(seedDocuments.length);
   await page.getByLabel("Upload documents").setInputFiles({
     name: filename, mimeType: "application/pdf", buffer: textPDF([firstPage, secondPage])
   });
-  await expect(page.locator(".document-card")).toHaveCount(5);
+  await expect(page.locator(".document-card")).toHaveCount(seedDocuments.length + 1);
   const title = filename.replace(/\.pdf$/, "").replace(/[_-]/g, " ");
   const card = page.locator(".document-card").filter({ has: page.getByRole("link", { name: title, exact: true }) });
   const href = await card.getByRole("link", { name: `Read ${title}`, exact: true }).getAttribute("href");
@@ -32,7 +33,7 @@ async function saveName(page: Page, value: string) {
 
 test("an uploaded PDF keeps its edited Unicode name and reading identity after reload", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".document-card")).toHaveCount(4);
+  await expect(page.locator(".document-card")).toHaveCount(seedDocuments.length);
   await expect(page.getByRole("button", { name: "Edit Book Name", exact: true })).toHaveCount(0);
   const { card, title, href } = await uploadBook(page);
   await card.getByRole("button", { name: "Edit Book Name", exact: true }).click();

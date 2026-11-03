@@ -1,23 +1,28 @@
 "use client";
 
-import { createContext, memo, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Fragment, jsx, jsxs } from "react/jsx-runtime";
 import { Check, Copy } from "lucide-react";
 import { toJsxRuntime, type ExtraProps } from "hast-util-to-jsx-runtime";
 import type { Element } from "hast";
 import type { ThemedTokenWithVariants } from "shiki/types";
-import { markdownHighlightRanges, markdownNodeText, parseMarkdown } from "@/lib/markdown";
+import { markdownHighlightRanges, markdownNodeText, parseMarkdown, type MarkdownDocument } from "@/lib/markdown";
 import { segmentText, type TextRange } from "@/lib/text";
 import type { Highlight } from "@/lib/types";
+import { MarkdownImage, MarkdownImages } from "./markdown-images";
 import "./markdown-preview.css";
 
 interface MarkdownPreviewProps {
   source: string;
+  documentId: string;
+  markdownPath?: string;
+  page: number;
   highlights: Highlight[];
   activeHighlight: string;
   speechRange: TextRange | null;
   onHighlightClick: (highlight: Highlight) => void;
-  onTextReady: (text: string) => void;
+  onPageChange: (page: number) => void;
+  onModelReady: (model: MarkdownDocument) => void;
 }
 interface ReadingRanges { highlights: Highlight[]; activeHighlight: string; speechRange: TextRange | null; onHighlightClick: (highlight: Highlight) => void }
 const RangesContext = createContext<ReadingRanges>({ highlights: [], activeHighlight: "", speechRange: null, onHighlightClick: () => {} });
@@ -100,26 +105,87 @@ function MarkdownTable({ children }: { children?: ReactNode }) {
   return <div className="markdown-table-scroll" tabIndex={0} role="region" aria-label="Scrollable Markdown table"><table>{children}</table></div>;
 }
 
-const components = { span: MarkdownSpan, pre: MarkdownCodeBlock, table: MarkdownTable };
+const components = { span: MarkdownSpan, pre: MarkdownCodeBlock, table: MarkdownTable, img: MarkdownImage };
 
-export const MarkdownPreview = memo(function MarkdownPreview({ source, highlights, activeHighlight, speechRange, onHighlightClick, onTextReady }: MarkdownPreviewProps) {
+export const MarkdownPreview = memo(function MarkdownPreview({ source, documentId, markdownPath, page, highlights, activeHighlight, speechRange, onHighlightClick, onPageChange, onModelReady }: MarkdownPreviewProps) {
   const parsed = useMemo(() => {
     try { return { model: parseMarkdown(source), error: false }; }
     catch { return { model: null, error: true }; }
   }, [source]);
   const model = parsed.model;
-  const content = useMemo(() => model ? toJsxRuntime(model.tree, { Fragment, jsx, jsxs, components, passNode: true }) as ReactNode : null, [model]);
+  const currentPage = model ? Math.max(0, Math.min(model.pages.length - 1, Number.isFinite(page) ? Math.floor(page) : 0)) : 0;
+  const visiblePage = model?.pages[currentPage];
+  const content = useMemo(() => visiblePage ? toJsxRuntime(visiblePage.tree, { Fragment, jsx, jsxs, components, passNode: true }) as ReactNode : null, [visiblePage]);
   const resolvedHighlights = useMemo(() => model ? markdownHighlightRanges(model, highlights) : [], [model, highlights]);
   const ranges = useMemo(() => ({ highlights: resolvedHighlights, activeHighlight, speechRange, onHighlightClick }), [resolvedHighlights, activeHighlight, speechRange, onHighlightClick]);
-  useEffect(() => { onTextReady(model?.text ?? ""); }, [model, onTextReady]);
+  const preview = useRef<HTMLDivElement>(null);
+  const pendingAnchor = useRef<{ id: string; page: number } | null>(null);
+  const pageChange = useRef(onPageChange);
+  const renderedPage = useRef(currentPage);
+  const scrollFrame = useRef(0);
+  pageChange.current = onPageChange;
+  renderedPage.current = currentPage;
+  const scrollToPendingAnchor = useCallback(() => {
+    const target = pendingAnchor.current;
+    if (!target || target.page !== renderedPage.current) return;
+    const element = preview.current?.querySelector<HTMLElement>(`#${CSS.escape(target.id)}`);
+    if (element) {
+      pendingAnchor.current = null;
+      element.scrollIntoView({ block: "start" });
+    }
+  }, []);
+  const requestAnchor = useCallback((hash: string) => {
+    if (!model || !hash.startsWith("#md-")) return false;
+    let id: string;
+    try { id = decodeURIComponent(hash.slice(1)); } catch { return false; }
+    const heading = model.headings.find((item) => item.id === id);
+    if (!heading) return false;
+    pendingAnchor.current = { id, page: heading.page };
+    pageChange.current(heading.page);
+    window.cancelAnimationFrame(scrollFrame.current);
+    scrollFrame.current = window.requestAnimationFrame(scrollToPendingAnchor);
+    return true;
+  }, [model, scrollToPendingAnchor]);
+  useEffect(() => { if (model) onModelReady(model); }, [model, onModelReady]);
   useEffect(() => {
-    if (!model || !window.location.hash.startsWith("#md-")) return;
-    try { window.document.getElementById(decodeURIComponent(window.location.hash.slice(1)))?.scrollIntoView(); } catch { /* Invalid fragments have no target. */ }
-  }, [model]);
-  return <div className="markdown-preview">
+    if (!model) return;
+    // Let the reader restore its saved position first; an explicit heading URL
+    // then selects its destination page. Page turns do not reapply an old hash.
+    const initialFrame = window.requestAnimationFrame(() => { requestAnchor(window.location.hash); });
+    const followHash = () => { requestAnchor(window.location.hash); };
+    const followHistory = (event: PopStateEvent) => {
+      if (requestAnchor(window.location.hash)) return;
+      const position = event.state?.folioMarkdownPosition;
+      if (position?.documentId === documentId && Number.isInteger(position.page)) {
+        pendingAnchor.current = null;
+        pageChange.current(position.page);
+      }
+    };
+    window.addEventListener("hashchange", followHash);
+    window.addEventListener("popstate", followHistory);
+    return () => {
+      window.cancelAnimationFrame(initialFrame);
+      window.cancelAnimationFrame(scrollFrame.current);
+      window.removeEventListener("hashchange", followHash);
+      window.removeEventListener("popstate", followHistory);
+      pendingAnchor.current = null;
+    };
+  }, [model, documentId, requestAnchor]);
+  useEffect(() => { scrollToPendingAnchor(); }, [currentPage, model, scrollToPendingAnchor]);
+  return <div className="markdown-preview" ref={preview} data-markdown-page={currentPage} onClick={(event) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || !(event.target instanceof window.Element)) return;
+    const anchor = event.target.closest<HTMLAnchorElement>('a[href^="#md-"]');
+    const hash = anchor?.getAttribute("href");
+    if (!hash || !requestAnchor(hash)) return;
+    event.preventDefault();
+    if (window.location.hash !== hash) {
+      window.history.replaceState({ ...window.history.state, folioMarkdownPosition: { documentId, page: currentPage } }, "", window.location.href);
+      window.history.pushState({ ...window.history.state, folioMarkdownPosition: { documentId, page: pendingAnchor.current?.page ?? currentPage } }, "", hash);
+    }
+  }}>
     {parsed.error ? <p role="alert">This Markdown file could not be previewed. Try importing it again as UTF-8 text.</p> : !source.trim() ? <p className="markdown-empty">No content in this Markdown file.</p> : <>
       {model && model.headings.length > 1 && <details className="markdown-toc" data-reader-ignore="true"><summary>Table of contents</summary><nav aria-label="Table of contents"><ul>{model.headings.map((heading) => <li key={heading.id} style={{ marginLeft: `${(heading.depth - 1) * 0.65}em` }}><a href={`#${heading.id}`}>{heading.text}</a></li>)}</ul></nav></details>}
-      <RangesContext.Provider value={ranges}>{content}</RangesContext.Provider>
+      {visiblePage && <MarkdownImages documentId={documentId} markdownPath={markdownPath} imageSources={visiblePage.imageSources}><RangesContext.Provider value={ranges}>{content}</RangesContext.Provider></MarkdownImages>}
     </>}
   </div>;
 });

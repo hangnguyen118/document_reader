@@ -1,0 +1,10 @@
+.library-upload-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+.markdown-upload-help { margin: -12px 0 24px; color: var(--hui-color-text-muted); font-size: 12px; line-height: 1.7; }
+.markdown-upload-warnings { margin: 0 0 24px; padding: 16px; border: 1px solid var(--hui-color-border); border-radius: var(--hui-radius-md); background: var(--hui-color-surface); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.markdown-upload-warnings p { margin: 5px 0; }
+.markdown-upload-warnings ul { max-height: 180px; overflow: auto; padding-left: 22px; }
+@media (max-width: 640px) {
+  .library-page .page-heading { flex-wrap: wrap; }
+  .library-upload-actions { justify-content: flex-start; }
+  .markdown-upload-help { margin-top: 0; }
+}

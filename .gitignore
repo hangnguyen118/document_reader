@@ -5,6 +5,7 @@ out/
 .env*
 !.env.example
 public/pdf.worker.min.mjs
+/public/Books/
 playwright-report/
 test-results/
 .artifacts/

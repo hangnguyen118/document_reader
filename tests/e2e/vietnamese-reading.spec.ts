@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { seedDocuments } from "../../lib/seed";
 import { mockSpeech, selectText, textDOCX } from "./helpers";
 import { vietnameseDOCX } from "../fixtures/vietnamese-docx";
 
@@ -55,7 +56,7 @@ test("Vietnamese UTF-8 TXT, Markdown and DOCX retain composed and combining text
     { name: "vietnamese-markdown.md", mimeType: "text/markdown", buffer: Buffer.from(source, "utf8") },
     { name: "vietnamese-docx.docx", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", buffer: await textDOCX(source) }
   ]);
-  await expect(page.locator(".document-card")).toHaveCount(7);
+  await expect(page.locator(".document-card")).toHaveCount(seedDocuments.length + 3);
   for (const name of ["vietnamese txt", "vietnamese markdown", "vietnamese docx"]) {
     await page.getByRole("link", { name: `Read ${name}`, exact: true }).click();
     if (name === "vietnamese markdown") {
@@ -77,10 +78,10 @@ test("Vietnamese UTF-8 TXT, Markdown and DOCX retain composed and combining text
 test("existing decomposed documents keep saved UTF-16 offsets while rendering whole Vietnamese letters", async ({ page }) => {
   const text = "ẮẤỆỨ — tiếng Việt; nội dung gốc.\n\nDòng thứ hai!".normalize("NFD");
   await page.goto("/");
-  await expect(page.locator(".document-card")).toHaveCount(4);
+  await expect(page.locator(".document-card")).toHaveCount(seedDocuments.length);
   await page.evaluate(async (text) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("folio-reading", 1);
+      const request = indexedDB.open("folio-reading");
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
@@ -116,7 +117,7 @@ test("existing decomposed documents keep saved UTF-16 offsets while rendering wh
   await expect(page.locator("mark.text-highlight")).toHaveText(["Ắ".normalize("NFD"), quote]);
   const persisted = await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("folio-reading", 1);
+      const request = indexedDB.open("folio-reading");
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
@@ -138,7 +139,7 @@ test("Vietnamese DOCX glyphs and speech boundaries use complete local fonts", as
   await mockSpeech(page);
   await page.goto("/");
   await page.getByLabel("Upload documents").setInputFiles({ name: "vietnamese-speech.docx", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", buffer: await textDOCX(text) });
-  await expect(page.locator(".document-card")).toHaveCount(5);
+  await expect(page.locator(".document-card")).toHaveCount(seedDocuments.length + 1);
   await page.getByRole("link", { name: "Read vietnamese speech", exact: true }).click();
   await expectIntactText(page, text);
   const readingUrl = page.url();
@@ -175,7 +176,7 @@ test("Vietnamese DOCX remains readable and selectable without Intl.Segmenter", a
   await page.addInitScript(() => { Object.defineProperty(Intl, "Segmenter", { value: undefined, configurable: true }); });
   await page.goto("/");
   await page.getByLabel("Upload documents").setInputFiles({ name: "vietnamese-legacy.docx", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", buffer: await textDOCX(text) });
-  await expect(page.locator(".document-card")).toHaveCount(5);
+  await expect(page.locator(".document-card")).toHaveCount(seedDocuments.length + 1);
   await page.getByRole("link", { name: "Read vietnamese legacy", exact: true }).click();
   const reader = page.getByTestId("reader-text");
   await expect(reader).toBeVisible();

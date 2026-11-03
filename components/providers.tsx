@@ -2,8 +2,8 @@
 
 import { ThemeProvider, type ThemeConfig } from "@hangnguyen1902/theme";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { deleteRecord, loadSnapshot, patchDocument, persistSettings, removeDocument, saveRecord } from "@/lib/database";
-import { defaultSettings, type Highlight, type Note, type ReaderSettings, type ReadingDocument, type Snapshot, type VocabularyItem } from "@/lib/types";
+import { deleteRecord, loadSnapshot, patchDocument, persistSettings, removeDocument, saveDocumentWithAssets, saveRecord } from "@/lib/database";
+import { defaultSettings, type DocumentAsset, type Highlight, type Note, type ReaderSettings, type ReadingDocument, type Snapshot, type VocabularyItem } from "@/lib/types";
 
 const themeConfig: ThemeConfig = {
   colors: {
@@ -40,7 +40,7 @@ function useStore() {
     catch { setError("Your changes could not be saved on this device. Check available browser storage and try again."); throw new Error("Could not save changes"); }
     finally { setPending((value) => value - 1); }
   }, []);
-  const addDocument = useCallback((document: ReadingDocument) => commit(() => saveRecord("documents", document), () => setSnapshot((state) => ({ ...state, documents: [...state.documents, document] }))), [commit]);
+  const addDocument = useCallback((document: ReadingDocument, assets: DocumentAsset[] = []) => commit(() => saveDocumentWithAssets(document, assets), () => setSnapshot((state) => ({ ...state, documents: [...state.documents, document] }))), [commit]);
   const updateDocument = useCallback((id: string, patch: Partial<ReadingDocument>) => commit(() => patchDocument(id, patch), (document) => setSnapshot((state) => ({ ...state, documents: state.documents.map((item) => item.id === id ? document : item) }))), [commit]);
   const deleteDocument = useCallback((id: string) => commit(() => removeDocument(id), () => setSnapshot((state) => ({ ...state, documents: state.documents.filter((item) => item.id !== id), highlights: state.highlights.filter((item) => item.documentId !== id), notes: state.notes.filter((item) => item.documentId !== id), settings: state.settings.lastDocumentId === id ? { ...state.settings, lastDocumentId: null } : state.settings }))), [commit]);
   const updateSettings = useCallback((patch: Partial<ReaderSettings>) => commit(() => persistSettings(patch), (settings) => setSnapshot((state) => ({ ...state, settings }))), [commit]);

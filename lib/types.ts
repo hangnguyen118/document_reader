@@ -10,6 +10,10 @@ export interface ReadingDocument {
   description: string;
   category: string;
   pages: string[];
+  /** Original Markdown location relative to its imported folder's root. */
+  markdownPath?: string;
+  /** Derived preview page count; the original Markdown stays in pages unchanged. */
+  markdownPageCount?: number;
   wordCount: number;
   uploaded: boolean;
   favorite: boolean;
@@ -17,6 +21,13 @@ export interface ReadingDocument {
   createdAt: number;
   lastReadAt: number | null;
   cover: "sage" | "sand" | "rose" | "blue";
+}
+export interface DocumentAsset {
+  documentId: string;
+  path: string;
+  blob: Blob;
+  mimeType: string;
+  size: number;
 }
 export interface Highlight {
   id: string;

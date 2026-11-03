@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { seedDocuments } from "../../lib/seed";
 import type { ReadingDocument } from "../../lib/types";
 
 function pagination(page: Page) {
@@ -21,9 +22,9 @@ function documents(count: number, uploaded: boolean, favorite = false): ReadingD
 
 async function seedLibrary(page: Page, records: ReadingDocument[]) {
   await page.goto("/");
-  await expect(page.locator(".document-card")).toHaveCount(4);
+  await expect(page.locator(".document-card")).toHaveCount(seedDocuments.length);
   await page.evaluate((records) => new Promise<void>((resolve, reject) => {
-    const request = indexedDB.open("folio-reading", 1);
+    const request = indexedDB.open("folio-reading");
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const db = request.result;
@@ -35,13 +36,13 @@ async function seedLibrary(page: Page, records: ReadingDocument[]) {
     };
   }), records);
   await page.reload();
-  await expect(page.locator(".document-card")).toHaveCount(Math.min(12, records.length + 4));
+  await expect(page.locator(".document-card")).toHaveCount(Math.min(12, records.length + seedDocuments.length));
 }
 
-for (const { tab, total, lastPageCount } of [
-  { tab: "All documents", total: 30, lastPageCount: 6 },
-  { tab: "Folio readings", total: 17, lastPageCount: 5 },
-  { tab: "My uploads", total: 13, lastPageCount: 1 }
+for (const { tab, total } of [
+  { tab: "All documents", total: 26 + seedDocuments.length },
+  { tab: "Folio readings", total: 13 + seedDocuments.length },
+  { tab: "My uploads", total: 13 }
 ]) {
   test(`${tab} displays only the selected page and makes every document reachable`, async ({ page }) => {
     const errors: string[] = [];
@@ -56,7 +57,7 @@ for (const { tab, total, lastPageCount } of [
 
     const lastPage = Math.ceil(total / 12);
     await nav.getByRole("button", { name: `Page ${lastPage}`, exact: true }).click();
-    await expect(page.locator(".document-card")).toHaveCount(lastPageCount);
+    await expect(page.locator(".document-card")).toHaveCount((total - 1) % 12 + 1);
     await expect(nav.getByRole("status")).toHaveText(`Showing ${(lastPage - 1) * 12 + 1}–${total} of ${total} documents`);
     await expect(nav.getByRole("button", { name: "Next page", exact: true })).toBeDisabled();
     await nav.getByRole("button", { name: "Previous page", exact: true }).click();
@@ -170,7 +171,7 @@ test("renaming and removing a favorite on page two preserve the book and keep Fa
 
 test("empty and single-page shelves gain pagination after a real upload crosses twelve documents", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".document-card")).toHaveCount(4);
+  await expect(page.locator(".document-card")).toHaveCount(seedDocuments.length);
   await expect(pagination(page)).not.toBeVisible();
   await page.getByRole("button", { name: "My uploads", exact: true }).click();
   await expect(page.locator(".document-card")).toHaveCount(0);

@@ -13,8 +13,10 @@ import { VocabularyDialog } from "./vocabulary-dialog";
 import { BookNameDialog } from "./book-name-dialog";
 import { useSpeech } from "@/hooks/use-speech";
 import { useTranslation } from "@/hooks/use-translation";
-import { segmentText, selectionOffsets } from "@/lib/text";
+import { documentPageCount, segmentText, selectionOffsets } from "@/lib/text";
 import { markdownSelectionOffsets } from "@/lib/markdown-selection";
+import { markdownHighlightRanges, markdownPageForOffset, markdownPreviewOffset } from "@/lib/markdown-pagination";
+import type { MarkdownDocument } from "@/lib/markdown";
 import type { Highlight, HighlightColor, Note, TranslationProvider } from "@/lib/types";
 
 const MarkdownPreview = dynamic(() => import("./markdown-preview").then((module) => module.MarkdownPreview), {
@@ -25,23 +27,43 @@ interface SelectionTarget { start: number; end: number; text: string; page: numb
 export function ReaderView({ documentId }: { documentId: string }) {
   const { documents, highlights, notes, settings, ready, updateDocument, updateSettings, saveHighlight, removeHighlight, removeNote, notify } = useReading();
   const searchParams = useSearchParams(); const requestedPage = searchParams.get("page");
+  const requestedNote = searchParams.get("note");
   const reading = usePathname().startsWith("/read/");
-  const appliedPosition = useRef<{ documentId: string; requestedPage: string | null } | null>(null);
+  const appliedPosition = useRef<{ documentId: string; requestedPage: string | null; requestedNote: string | null } | null>(null);
   const document = documents.find((item) => item.id === documentId);
   const markdownSource = useMemo(() => document?.type === "MD" ? document.pages.join("") : "", [document?.type, document?.pages]);
-  const [markdownReading, setMarkdownReading] = useState<{ source: string; text: string } | null>(null);
-  const markdownText = markdownReading?.source === markdownSource ? markdownReading.text : "";
-  const onMarkdownTextReady = useCallback((text: string) => setMarkdownReading({ source: markdownSource, text }), [markdownSource]);
+  const [markdownReading, setMarkdownReading] = useState<{ documentId: string; source: string; model: MarkdownDocument } | null>(null);
+  const markdownModelRef = useRef<typeof markdownReading>(null);
+  const markdownModel = markdownReading?.documentId === documentId && markdownReading.source === markdownSource ? markdownReading.model : null;
+  const onMarkdownModelReady = useCallback((model: MarkdownDocument) => {
+    const reading = { documentId, source: markdownSource, model };
+    markdownModelRef.current = reading;
+    setMarkdownReading(reading);
+  }, [documentId, markdownSource]);
   const [page, setPage] = useState(0); const pageRef = useRef(0);
-  const savedHighlights = useMemo(() => highlights.filter((item) => item.documentId === documentId).sort((a, b) => a.page - b.page || a.start - b.start), [highlights, documentId]);
-  const savedNotes = useMemo(() => notes.filter((item) => item.documentId === documentId).sort((a, b) => b.updatedAt - a.updatedAt), [notes, documentId]);
-  const currentHighlights = useMemo(() => {
-    if (document?.type !== "MD") return savedHighlights.filter((item) => item.page === page);
+  const pageCount = document?.type === "MD" && markdownModel ? markdownModel.pages.length : document ? documentPageCount(document) : 1;
+  const paginationReady = document?.type !== "MD" || Boolean(markdownModel);
+  const markdownText = markdownModel?.pages[page]?.text ?? "";
+  const savedHighlights = useMemo(() => {
+    const saved = highlights.filter((item) => item.documentId === documentId);
+    if (document?.type !== "MD" || !markdownModel) return saved.sort((a, b) => a.page - b.page || a.start - b.start);
     const sourcePageOffsets: number[] = [];
     let offset = 0;
     for (const sourcePage of document.pages) { sourcePageOffsets.push(offset); offset += sourcePage.length; }
-    return savedHighlights.map((item) => item.coordinateSpace === "markdown-preview" ? item : { ...item, start: (sourcePageOffsets[item.page] ?? 0) + item.start, end: (sourcePageOffsets[item.page] ?? 0) + item.end });
-  }, [document?.type, document?.pages, page, savedHighlights]);
+    const sourceRanges = saved.map((item) => item.coordinateSpace === "markdown-preview" ? item : { ...item, start: (sourcePageOffsets[item.page] ?? 0) + item.start, end: (sourcePageOffsets[item.page] ?? 0) + item.end });
+    return markdownHighlightRanges(markdownModel, sourceRanges).map((item) => ({ ...item, coordinateSpace: "markdown-preview" as const, page: markdownPageForOffset(markdownModel.pages, item.start) })).sort((a, b) => a.page - b.page || a.start - b.start);
+  }, [highlights, documentId, document?.type, document?.pages, markdownModel]);
+  const savedNotes = useMemo(() => notes.filter((item) => item.documentId === documentId).map((item) => {
+    if (document?.type !== "MD" || !markdownModel) return item;
+    const target = Math.max(0, Math.min(markdownModel.pages.length - 1, item.page));
+    const offset = item.quote ? markdownModel.text.indexOf(item.quote, markdownModel.pages[target].start) : -1;
+    const found = offset >= 0 ? offset : item.quote ? markdownModel.text.indexOf(item.quote) : -1;
+    return { ...item, page: found >= 0 ? markdownPageForOffset(markdownModel.pages, found) : target };
+  }).sort((a, b) => b.updatedAt - a.updatedAt), [notes, documentId, document?.type, markdownModel]);
+  const currentHighlights = useMemo(() => {
+    const visible = markdownModel?.pages[page];
+    return document?.type === "MD" && visible ? savedHighlights.filter((item) => item.start < visible.end && item.end > visible.start) : savedHighlights.filter((item) => item.page === page);
+  }, [document?.type, markdownModel, page, savedHighlights]);
   const [scope, setScope] = useState("page");
   const [selection, setSelection] = useState<SelectionTarget | null>(null);
   const [notebook, setNotebook] = useState(false); const [notebookTab, setNotebookTab] = useState<"notes" | "highlights">("notes");
@@ -61,23 +83,31 @@ export function ReaderView({ documentId }: { documentId: string }) {
     if (!offsets) { setSelection(null); return; }
     const rect = browserSelection!.getRangeAt(0).getBoundingClientRect();
     const width = Math.min(390, window.innerWidth - 24);
-    setSelection({ ...offsets, page: document?.type === "MD" ? 0 : page, x: Math.max(12, Math.min(window.innerWidth - width - 12, rect.left + rect.width / 2 - width / 2)), y: Math.max(12, rect.top > 64 ? rect.top - 54 : rect.bottom + 8) });
+    setSelection({ ...offsets, page, x: Math.max(12, Math.min(window.innerWidth - width - 12, rect.left + rect.width / 2 - width / 2)), y: Math.max(12, rect.top > 64 ? rect.top - 54 : rect.bottom + 8) });
   }, [document?.type, page]);
 
   useEffect(() => {
-    if (!reading || !ready || !document) return;
+    if (!reading || !ready || !document || (document.type === "MD" && !markdownModel)) return;
     // The intercepted Settings route keeps this reader mounted. Returning to the
     // same URL must not reapply an old ?page= after the reader has turned pages.
-    if (appliedPosition.current?.documentId === document.id && appliedPosition.current.requestedPage === requestedPage) return;
-    appliedPosition.current = { documentId: document.id, requestedPage };
-    const requested = requestedPage === null ? document.currentPage : Number(requestedPage) - 1;
-    const initialPage = document.type === "MD" ? 0 : Number.isFinite(requested) ? Math.max(0, Math.min(document.pages.length - 1, Math.floor(requested))) : document.currentPage;
+    if (appliedPosition.current?.documentId === document.id && appliedPosition.current.requestedPage === requestedPage && appliedPosition.current.requestedNote === requestedNote) return;
+    appliedPosition.current = { documentId: document.id, requestedPage, requestedNote };
+    let requested = requestedPage === null ? document.currentPage : Number(requestedPage) - 1;
+    if (requestedPage === null && document.type === "MD" && markdownModel && !document.markdownPageCount && document.pages.length > 1) {
+      const oldOffset = document.pages.slice(0, Math.max(0, document.currentPage)).reduce((offset, source) => offset + source.length, 0);
+      requested = markdownPageForOffset(markdownModel.pages, markdownPreviewOffset(markdownModel, oldOffset));
+    }
+    let initialPage = Number.isFinite(requested) ? Math.max(0, Math.min(pageCount - 1, Math.floor(requested))) : 0;
+    if (markdownModel && requestedNote) initialPage = savedNotes.find((note) => note.id === requestedNote)?.page ?? initialPage;
+    if (markdownModel && window.location.hash.startsWith("#md-")) {
+      try { initialPage = markdownModel.headings.find((heading) => heading.id === decodeURIComponent(window.location.hash.slice(1)))?.page ?? initialPage; } catch { /* Ignore malformed heading fragments. */ }
+    }
     setPage(initialPage); pageRef.current = initialPage;
-    void updateDocument(document.id, { currentPage: initialPage, lastReadAt: Date.now() }).catch(() => {});
+    void updateDocument(document.id, { currentPage: initialPage, lastReadAt: Date.now(), ...(markdownModel ? { markdownPageCount: pageCount } : {}) }).catch(() => {});
     void updateSettings({ lastDocumentId: document.id }).catch(() => {});
     // Entering the document or following a saved page updates the position once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reading, ready, document?.id, requestedPage, updateDocument, updateSettings]);
+  }, [reading, ready, document?.id, requestedPage, requestedNote, markdownModel, pageCount, savedNotes, updateDocument, updateSettings]);
   useEffect(() => { if (!reading) speech.stop(); }, [reading, speech.stop]);
   useEffect(() => { speech.stop(); setSelection(null); setTranslationTarget(null); setEditingBookId(null); clearTranslation(); }, [documentId, speech.stop, clearTranslation]);
   useEffect(() => {
@@ -97,19 +127,24 @@ export function ReaderView({ documentId }: { documentId: string }) {
   }, [selection]);
 
   function clearSelection() { setSelection(null); window.getSelection()?.removeAllRanges(); }
-  function changePage(target: number, fromSpeech = false) {
+  function changePage(target: number, fromSpeech = false, preserveHeading = false) {
     if (!document) return;
-    const next = document.type === "MD" ? 0 : Math.max(0, Math.min(document.pages.length - 1, target));
-    if (!fromSpeech) { speech.stop(); clearSelection(); }
+    const model = markdownModelRef.current?.documentId === document.id && markdownModelRef.current.source === markdownSource ? markdownModelRef.current.model : null;
+    const count = document.type === "MD" && model ? model.pages.length : pageCount;
+    const next = Math.max(0, Math.min(count - 1, Number.isFinite(target) ? Math.floor(target) : 0));
+    if (!fromSpeech) { speech.stop(); clearSelection(); setTranslationTarget(null); clearTranslation(); }
     if (pageRef.current === next) return;
+    if (!preserveHeading && document.type === "MD" && window.location.hash.startsWith("#md-")) {
+      window.history.replaceState({ ...window.history.state, folioMarkdownPosition: { documentId: document.id, page: next } }, "", window.location.pathname + window.location.search);
+    }
     setPage(next); pageRef.current = next;
-    void updateDocument(document.id, { currentPage: next, lastReadAt: Date.now() }).catch(() => {});
+    void updateDocument(document.id, { currentPage: next, lastReadAt: Date.now(), ...(model ? { markdownPageCount: count } : {}) }).catch(() => {});
     textElement.current?.scrollIntoView({ block: "start", behavior: "instant" });
   }
   async function highlightSelection() {
     if (!selection || !document) return;
     const coordinateSpace = document.type === "MD" ? "markdown-preview" : undefined;
-    const existing = highlights.find((item) => item.documentId === document.id && item.page === selection.page && item.start === selection.start && item.end === selection.end && item.coordinateSpace === coordinateSpace);
+    const existing = highlights.find((item) => item.documentId === document.id && (document.type === "MD" || item.page === selection.page) && item.start === selection.start && item.end === selection.end && item.coordinateSpace === coordinateSpace);
     try { if (!existing) await saveHighlight({ id: crypto.randomUUID(), documentId: document.id, page: selection.page, start: selection.start, end: selection.end, text: selection.text, color: "yellow", createdAt: Date.now(), ...(coordinateSpace ? { coordinateSpace } : {}) }); notify("A passage worth coming back to."); clearSelection(); }
     catch { /* The storage banner explains a failed save. */ }
   }
@@ -121,7 +156,10 @@ export function ReaderView({ documentId }: { documentId: string }) {
     if (!document) return;
     if (speech.status === "playing") { speech.pause(); return; }
     if (speech.status === "paused") { speech.resume(); return; }
-    speech.speak(document.type === "MD" ? [{ text: markdownText, page: 0 }] : scope === "document" ? document.pages.map((text, index) => ({ text, page: index })) : [{ text: document.pages[page], page }], (target) => changePage(target, true));
+    const passages = document.type === "MD" && markdownModel
+      ? (scope === "document" ? markdownModel.pages.map((item, index) => ({ text: item.text, page: index, offset: item.start })) : [{ text: markdownText, page, offset: markdownModel.pages[page]?.start ?? 0 }])
+      : scope === "document" ? document.pages.map((text, index) => ({ text, page: index })) : [{ text: document.pages[page], page }];
+    speech.speak(passages, (target) => changePage(target, true));
   }
   function translateSelection() {
     if (!selection) return;
@@ -138,13 +176,13 @@ export function ReaderView({ documentId }: { documentId: string }) {
   const segments = isMarkdown ? [] : segmentText(text, [...currentHighlights, ...(speechRange ? [speechRange] : [])]);
 
   return <div className="reader-view"><div className="reader-toolbar"><Link href="/" className="text-link"><ArrowLeft size={15} /><span>Back to library</span></Link><div className="reader-title-small">{document.title}</div><div className="reader-tools"><button type="button" className={`icon-button ${document.favorite ? "favorited" : ""}`} aria-label={document.favorite ? "Remove from favorites" : "Add to favorites"} aria-pressed={document.favorite} onClick={() => { void updateDocument(document.id, { favorite: !document.favorite }).catch(() => {}); }}><Heart size={17} fill={document.favorite ? "currentColor" : "none"} /></button><button type="button" className={`icon-button ${notebook ? "is-active" : ""}`} aria-label="Toggle notebook" aria-expanded={notebook} onClick={() => setNotebook(!notebook)}><NotebookPen size={17} /></button><span className="toolbar-divider" /><button type="button" className="icon-button" aria-label="Decrease reading font size" disabled={settings.fontSize <= 16} onClick={() => { void updateSettings({ fontSize: settings.fontSize - 2 }).catch(() => {}); }}><Minus size={13} /></button><span className="font-size-label">Aa</span><button type="button" className="icon-button" aria-label="Increase reading font size" disabled={settings.fontSize >= 28} onClick={() => { void updateSettings({ fontSize: settings.fontSize + 2 }).catch(() => {}); }}><Plus size={13} /></button></div></div>
-    <div className={`reader-layout ${notebook ? "with-notebook" : ""}`}><div className="reader-column"><div className="reading-meta"><span className="page-eyebrow">{document.category.toUpperCase()}</span><span>{document.type} · {isMarkdown ? "Preview" : `${document.pages.length} pages`}</span></div><header className="reading-heading"><div className="reading-title-row"><h1>{document.title}</h1>{document.uploaded && <button type="button" className="text-link edit-book-name" onClick={() => { clearSelection(); setEditingBookId(document.id); }}><Pencil size={13} />Edit Book Name</button>}</div><p>{isMarkdown ? "Markdown document · Preview" : document.description}</p><span>By {document.author}<span className="meta-dot" />{Math.max(1, Math.ceil(document.wordCount / 200))} min read</span></header><div className="listening-controls"><div className="listen-buttons"><Button size="sm" variant="soft" leadingIcon={speech.status === "playing" ? <Pause size={14} /> : <Play size={14} fill="currentColor" />} onClick={startListening} disabled={!speech.supported || (isMarkdown && !text.trim())}>{speech.status === "playing" ? "Pause" : speech.status === "paused" ? "Resume" : "Listen"}</Button>{!isMarkdown && <select aria-label="Reading scope" value={scope} disabled={speech.status !== "idle"} onChange={(event) => setScope(event.target.value)}><option value="page">This page</option><option value="document">Whole document</option></select>}{speech.status !== "idle" && <button type="button" className="icon-button" aria-label="Stop reading" onClick={speech.stop}><Square size={13} fill="currentColor" /></button>}</div><Link href="/settings" className="speech-setting" aria-label="Reading settings" title="Reading settings"><Settings size={14} aria-hidden="true" />{settings.speechLanguage.startsWith("en") ? "English" : "Vietnamese"}<span className="meta-dot" />{settings.speechRate.toFixed(1)}×</Link></div>{speech.error && <p className="form-error" role="alert">{speech.error}</p>}
-    <div className={`reader-text${isMarkdown ? " markdown-reader-text" : ""}`} data-testid="reader-text" data-reading-font={settings.font} ref={textElement} style={{ fontSize: settings.fontSize, lineHeight: settings.lineHeight }} onMouseUp={captureSelection} onTouchEnd={() => setTimeout(captureSelection, 40)} onKeyUp={captureSelection}>{isMarkdown ? <MarkdownPreview source={markdownSource} highlights={currentHighlights} activeHighlight={activeHighlight} speechRange={speechRange} onHighlightClick={showHighlight} onTextReady={onMarkdownTextReady} /> : segments.map((segment) => {
+    <div className={`reader-layout ${notebook ? "with-notebook" : ""}`}><div className="reader-column"><div className="reading-meta"><span className="page-eyebrow">{document.category.toUpperCase()}</span><span>{document.type} · {pageCount} pages</span></div><header className="reading-heading"><div className="reading-title-row"><h1>{document.title}</h1>{document.uploaded && <button type="button" className="text-link edit-book-name" onClick={() => { clearSelection(); setEditingBookId(document.id); }}><Pencil size={13} />Edit Book Name</button>}</div><p>{isMarkdown ? "Markdown document · Preview" : document.description}</p><span>By {document.author}<span className="meta-dot" />{Math.max(1, Math.ceil(document.wordCount / 200))} min read</span></header><div className="listening-controls"><div className="listen-buttons"><Button size="sm" variant="soft" leadingIcon={speech.status === "playing" ? <Pause size={14} /> : <Play size={14} fill="currentColor" />} onClick={startListening} disabled={!speech.supported || (isMarkdown && !text.trim())}>{speech.status === "playing" ? "Pause" : speech.status === "paused" ? "Resume" : "Listen"}</Button><select aria-label="Reading scope" value={scope} disabled={speech.status !== "idle"} onChange={(event) => setScope(event.target.value)}><option value="page">This page</option><option value="document">Whole document</option></select>{speech.status !== "idle" && <button type="button" className="icon-button" aria-label="Stop reading" onClick={speech.stop}><Square size={13} fill="currentColor" /></button>}</div><Link href="/settings" className="speech-setting" aria-label="Reading settings" title="Reading settings"><Settings size={14} aria-hidden="true" />{settings.speechLanguage.startsWith("en") ? "English" : "Vietnamese"}<span className="meta-dot" />{settings.speechRate.toFixed(1)}×</Link></div>{speech.error && <p className="form-error" role="alert">{speech.error}</p>}
+    <div className={`reader-text${isMarkdown ? " markdown-reader-text" : ""}`} data-testid="reader-text" data-reading-font={settings.font} ref={textElement} style={{ fontSize: settings.fontSize, lineHeight: settings.lineHeight }} onMouseUp={captureSelection} onTouchEnd={() => setTimeout(captureSelection, 40)} onKeyUp={captureSelection}>{isMarkdown ? <MarkdownPreview key={document.id} source={markdownSource} page={page} onPageChange={(target) => changePage(target, false, true)} documentId={document.id} markdownPath={document.markdownPath} highlights={currentHighlights} activeHighlight={activeHighlight} speechRange={speechRange} onHighlightClick={showHighlight} onModelReady={onMarkdownModelReady} /> : segments.map((segment) => {
       const highlight = currentHighlights.find((item) => segment.ranges.some((range) => range.id === item.id));
       const speaking = segment.ranges.some((range) => range.id === "speech");
       return highlight ? <mark key={segment.start} className={`text-highlight highlight-${highlight.color} ${activeHighlight === highlight.id ? "highlight-active" : ""} ${speaking ? "spoken-text" : ""}`} tabIndex={0} role="button" aria-label={`Highlight: ${highlight.text.slice(0, 80)}`} onClick={() => showHighlight(highlight)} onKeyDown={(event) => { if (event.key === "Enter") { setNotebook(true); setNotebookTab("highlights"); setActiveHighlight(highlight.id); } }}>{segment.text}</mark> : speaking ? <mark key={segment.start} className="spoken-text">{segment.text}</mark> : <span key={segment.start}>{segment.text}</span>;
     })}</div>{!isMarkdown && !text.trim() && <p className="empty-page">No text was found on this PDF page.</p>}
-    <div className="reading-page-footer"><span>Take your time. The words will wait.</span>{!isMarkdown && <div className="page-navigation"><button type="button" className="icon-button" aria-label="Previous page" disabled={page === 0} onClick={() => changePage(page - 1)}><ChevronLeft size={18} /></button><label><select aria-label="Current page" value={page} onChange={(event) => changePage(Number(event.target.value))}>{document.pages.map((_, index) => <option key={index} value={index}>Page {index + 1}</option>)}</select><span>of {document.pages.length}</span></label><button type="button" className="icon-button" aria-label="Next page" disabled={page === document.pages.length - 1} onClick={() => changePage(page + 1)}><ChevronRight size={18} /></button></div>}</div><button type="button" className="margin-note-button" onClick={() => setNoteTarget({ quote: "", page })}><NotebookPen size={15} />Leave a thought in the margin</button><div className="reading-tip"><Highlighter size={13} />Select a passage to listen, highlight, translate, or keep a word.</div></div>
+    <div className="reading-page-footer"><span>Take your time. The words will wait.</span><div className="page-navigation"><button type="button" className="icon-button" aria-label="Previous page" disabled={!paginationReady || page === 0} onClick={() => changePage(page - 1)}><ChevronLeft size={18} /></button><label><select aria-label="Current page" disabled={!paginationReady} value={page} onChange={(event) => changePage(Number(event.target.value))}>{Array.from({ length: pageCount }, (_, index) => <option key={index} value={index}>Page {index + 1}</option>)}</select><span>of {pageCount}</span></label><button type="button" className="icon-button" aria-label="Next page" disabled={!paginationReady || page === pageCount - 1} onClick={() => changePage(page + 1)}><ChevronRight size={18} /></button></div></div><button type="button" className="margin-note-button" onClick={() => setNoteTarget({ quote: "", page })}><NotebookPen size={15} />Leave a thought in the margin</button><div className="reading-tip"><Highlighter size={13} />Select a passage to listen, highlight, translate, or keep a word.</div></div>
     {notebook && <aside className="notebook-panel" aria-label="Document notebook"><div className="notebook-heading"><NotebookPen size={17} /><h2>In the margins</h2><button type="button" className="icon-button" aria-label="Close notebook" onClick={() => setNotebook(false)}><X size={16} /></button></div><div className="notebook-tabs"><button type="button" aria-pressed={notebookTab === "notes"} onClick={() => setNotebookTab("notes")}>Notes <span>{savedNotes.length}</span></button><button type="button" aria-pressed={notebookTab === "highlights"} onClick={() => setNotebookTab("highlights")}>Highlights <span>{savedHighlights.length}</span></button></div>{notebookTab === "notes" ? <><Button size="sm" variant="outline" leadingIcon={<Plus size={14} />} onClick={() => setNoteTarget({ quote: "", page })}>Add a note</Button>{savedNotes.length ? savedNotes.map((note) => <div className="margin-note" key={note.id}><button type="button" className="margin-page-link" onClick={() => changePage(note.page)}>Page {note.page + 1}<ArrowRight size={11} /></button>{note.quote && <blockquote>{note.quote}</blockquote>}<p>{note.body}</p><div className="margin-actions"><button type="button" className="icon-button" aria-label="Edit note" onClick={() => setNoteTarget({ quote: note.quote, page: note.page, item: note })}><Pencil size={13} /></button><button type="button" className="icon-button" aria-label="Delete note" onClick={() => { void removeNote(note.id).then(() => notify("Note removed.")).catch(() => {}); }}><Trash2 size={13} /></button></div></div>) : <div className="notebook-empty"><NotebookPen size={24} strokeWidth={1.3} /><p>Your thoughts belong here.</p><span>Add a note about this page, or select a passage first.</span></div>}</> : savedHighlights.length ? savedHighlights.map((highlight) => <div className={`margin-highlight ${activeHighlight === highlight.id ? "active" : ""}`} key={highlight.id}><button type="button" className="margin-page-link" onClick={() => { changePage(highlight.page); setActiveHighlight(highlight.id); }}>Page {highlight.page + 1}<ArrowRight size={11} /></button><button type="button" className="highlight-quote" onClick={() => { changePage(highlight.page); setActiveHighlight(highlight.id); }}>{highlight.text}</button><div className="highlight-actions"><div className="highlight-colors">{(["yellow", "green", "pink"] as HighlightColor[]).map((color) => <button type="button" key={color} className={`highlight-${color}`} aria-label={`Set ${color} highlight`} aria-pressed={highlight.color === color} onClick={() => { void saveHighlight({ ...highlight, color }).catch(() => {}); }}>{highlight.color === color && <Check size={11} />}</button>)}</div><button type="button" className="icon-button" aria-label="Delete highlight" onClick={() => { void removeHighlight(highlight.id).then(() => notify("Highlight removed.")).catch(() => {}); }}><Trash2 size={13} /></button></div></div>) : <div className="notebook-empty"><Highlighter size={24} strokeWidth={1.3} /><p>Keep the lines that stay with you.</p><span>Select a passage and choose Highlight.</span></div>}</aside>}
     </div>
     {editingBookId === document.id && document.uploaded && <BookNameDialog key={document.id} document={document} onClose={() => setEditingBookId(null)} />}

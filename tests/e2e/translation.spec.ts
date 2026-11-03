@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { seedDocuments } from "../../lib/seed";
 import { selectText } from "./helpers";
 
 interface NativeState {
@@ -54,10 +55,10 @@ async function resolveNative(page: Page, text: string, translation: string) {
 // This exercises the same upgrade path as an existing user's browser data.
 async function storedProvider(page: Page, provider: string) {
   await page.goto("/");
-  await expect(page.locator(".document-card")).toHaveCount(4);
+  await expect(page.locator(".document-card")).toHaveCount(seedDocuments.length);
   await page.evaluate(async (provider) => {
     await new Promise<void>((resolve, reject) => {
-      const request = indexedDB.open("folio-reading", 1);
+      const request = indexedDB.open("folio-reading");
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
         const db = request.result;

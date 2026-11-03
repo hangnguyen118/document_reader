@@ -73,7 +73,15 @@ test("Settings Back keeps a long Markdown passage visible when larger text reflo
   });
   await page.getByRole("link", { name: "Read a long reading session", exact: true }).click();
   const passage = page.getByTestId("reader-text").locator("p").filter({ hasText: /^Passage 36:/ });
+  const currentPage = page.getByRole("combobox", { name: "Current page" });
+  const pageCount = await currentPage.locator("option").count();
+  expect(pageCount).toBeGreaterThan(1);
+  for (let index = 0; index < pageCount && !await passage.count(); index++) {
+    await currentPage.selectOption(String(index));
+    await expect(currentPage).toHaveValue(String(index));
+  }
   await expect(passage).toBeVisible();
+  const readingPage = await currentPage.inputValue();
   await page.evaluate(() => document.fonts.ready);
   await passage.evaluate((element) => window.scrollTo(0, window.scrollY + element.getBoundingClientRect().top - 100));
   await expect.poll(() => passage.evaluate((element) => Math.abs(element.getBoundingClientRect().top - 100))).toBeLessThan(1);
@@ -83,6 +91,7 @@ test("Settings Back keeps a long Markdown passage visible when larger text reflo
   await expect(page.locator(".reading-preview")).toHaveCSS("font-size", "28px");
   await page.getByRole("button", { name: "Back to reading", exact: true }).click();
   await expect(page).toHaveURL(readingURL);
+  await expect(currentPage).toHaveValue(readingPage);
   await expect(page.getByTestId("reader-text")).toHaveCSS("font-size", "28px");
   // One enlarged line allows for reflow around the first visible text while
   // still proving that earlier paragraphs did not displace this passage.

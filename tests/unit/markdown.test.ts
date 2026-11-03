@@ -61,12 +61,39 @@ test("heading IDs support Unicode, formatting, duplicates and document-scoped sl
   const source = "# Tiếng Việt\n\n## Tiếng Việt\n\n### Part *one*\n\n[Jump](#part-one)\n\n[Unicode heading](#tiếng-việt)";
   const first = parseMarkdown(source);
   assert.deepEqual(first.headings, [
-    { id: "md-tiếng-việt", text: "Tiếng Việt", depth: 1 },
-    { id: "md-tiếng-việt-1", text: "Tiếng Việt", depth: 2 },
-    { id: "md-part-one", text: "Part one", depth: 3 }
+    { id: "md-tiếng-việt", text: "Tiếng Việt", depth: 1, page: 0 },
+    { id: "md-tiếng-việt-1", text: "Tiếng Việt", depth: 2, page: 0 },
+    { id: "md-part-one", text: "Part one", depth: 3, page: 0 }
   ]);
   assert.deepEqual(parseMarkdown(source).headings, first.headings);
   assert.deepEqual(elements(first.tree, "a").map((link) => decodeURIComponent(String(link.properties.href))), ["#md-part-one", "#md-tiếng-việt"]);
+});
+
+test("Markdown preserves inline and reference image sources and labels without changing code or links", () => {
+  const source = [
+    '![Inline](./images/inline.jpg "Image title")',
+    "![Reference][picture]",
+    "[picture]: images/reference.jpg",
+    "![Parent](../assets/parent.jpg)",
+    "![Remote](https://example.com/remote.jpg)",
+    "![CDN](//example.com/cdn.jpg)",
+    "![Unsafe](javascript:alert%281%29)",
+    "[Link](./images/link.jpg)",
+    "`![Example](./images/example.jpg)`",
+    "```markdown\n![Code](./images/code.jpg)\n```"
+  ].join("\n\n");
+  const model = parseMarkdown(source);
+  const images = elements(model.tree, "img");
+  assert.deepEqual(images.map((image) => image.properties.src), [
+    "./images/inline.jpg", "images/reference.jpg", "../assets/parent.jpg",
+    "https://example.com/remote.jpg", "//example.com/cdn.jpg", undefined
+  ]);
+  assert.deepEqual(images.map((image) => image.data?.markdownImageSource), model.imageSources);
+  assert.deepEqual(images.map((image) => image.properties.alt), ["Inline", "Reference", "Parent", "Remote", "CDN", "Unsafe"]);
+  assert.equal(images[0].properties.title, "Image title");
+  assert.equal(elements(model.tree, "a")[0].properties.href, "./images/link.jpg");
+  assert.ok(model.text.includes("![Example](./images/example.jpg)"));
+  assert.ok(model.text.includes("![Code](./images/code.jpg)"));
 });
 
 test("legacy source annotations map to their nearest matching rendered text without changing saved data", () => {

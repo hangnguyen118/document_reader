@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { seedDocuments } from "../../lib/seed";
 import type { ReadingDocument } from "../../lib/types";
 
 function defaultBooksToggle(page: Page) {
@@ -11,13 +12,13 @@ function allCount(page: Page) {
 
 async function openLibrary(page: Page) {
   await page.goto("/");
-  await expect(page.locator(".document-card")).toHaveCount(4);
+  await expect(page.locator(".document-card")).toHaveCount(seedDocuments.length);
   await expect(defaultBooksToggle(page)).toBeChecked();
 }
 
 async function savedReadingData(page: Page) {
   return page.evaluate(() => new Promise<Record<string, unknown[]>>((resolve, reject) => {
-    const request = indexedDB.open("folio-reading", 1);
+    const request = indexedDB.open("folio-reading");
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const db = request.result;
@@ -35,10 +36,50 @@ async function savedReadingData(page: Page) {
   }));
 }
 
+test("previously bundled Markdown is retired after reload while uploaded Markdown remains", async ({ page }) => {
+  await openLibrary(page);
+  const retired: ReadingDocument = { ...seedDocuments[0], id: "retired-local-markdown", title: "Retired local sample", type: "MD", pages: ["# Retired sample"], uploaded: false };
+  const upload: ReadingDocument = { ...retired, id: "personal-markdown", title: "Personal Markdown", pages: ["# My uploaded Markdown"], uploaded: true };
+  await page.evaluate((records) => new Promise<void>((resolve, reject) => {
+    const request = indexedDB.open("folio-reading");
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+      const tx = db.transaction(["documents", "documentAssets"], "readwrite");
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onerror = () => { db.close(); reject(tx.error); };
+      tx.onabort = () => { db.close(); reject(tx.error); };
+      for (const record of records) {
+        tx.objectStore("documents").put(record);
+        const blob = new Blob(["saved bytes"], { type: "image/png" });
+        tx.objectStore("documentAssets").put({ documentId: record.id, path: "preview.png", blob, mimeType: blob.type, size: blob.size });
+      }
+    };
+  }), [retired, upload]);
+  await page.reload();
+  await expect(page.locator(".document-card")).toHaveCount(seedDocuments.length + 1);
+  await expect(page.getByRole("link", { name: "Read Retired local sample", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Read Personal Markdown", exact: true })).toBeVisible();
+  const saved = (await savedReadingData(page)).documents as ReadingDocument[];
+  expect(saved.find((document) => document.id === retired.id)).toBeUndefined();
+  expect(saved.find((document) => document.id === upload.id)).toEqual(upload);
+  const assetOwners = await page.evaluate(() => new Promise<string[]>((resolve, reject) => {
+    const request = indexedDB.open("folio-reading");
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+      const read = db.transaction("documentAssets").objectStore("documentAssets").getAll();
+      read.onsuccess = () => { db.close(); resolve(read.result.map((asset) => asset.documentId)); };
+      read.onerror = () => { db.close(); reject(read.error); };
+    };
+  }));
+  expect(assetOwners).toEqual([upload.id]);
+});
+
 test("default books start visible and the switch persists across reloads and Library/Favorites", async ({ page }) => {
   await openLibrary(page);
   const titles = await page.locator(".document-title").allTextContents();
-  await expect(allCount(page)).toHaveText("4");
+  await expect(allCount(page)).toHaveText(String(seedDocuments.length));
   await expect(page.locator(".featured-read")).toBeVisible();
 
   await defaultBooksToggle(page).uncheck();
@@ -57,13 +98,13 @@ test("default books start visible and the switch persists across reloads and Lib
   await page.goto("/");
   await expect(defaultBooksToggle(page)).toBeChecked();
   await expect(page.locator(".document-title")).toHaveText(titles);
-  await expect(allCount(page)).toHaveText("4");
+  await expect(allCount(page)).toHaveText(String(seedDocuments.length));
 });
 
 test("hiding default books preserves their favorite, progress, notes, highlights and vocabulary", async ({ page }) => {
   await openLibrary(page);
   await page.evaluate(() => new Promise<void>((resolve, reject) => {
-    const request = indexedDB.open("folio-reading", 1);
+    const request = indexedDB.open("folio-reading");
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const db = request.result;
@@ -119,8 +160,8 @@ test("a visibility storage failure keeps default books visible and allows a succ
   await expect(page.locator('.storage-error[role="alert"]')).toContainText("Your changes could not be saved on this device.");
   await expect(defaultBooksToggle(page)).toBeChecked();
   await expect(defaultBooksToggle(page)).toBeEnabled();
-  await expect(page.locator(".document-card")).toHaveCount(4);
-  await expect(allCount(page)).toHaveText("4");
+  await expect(page.locator(".document-card")).toHaveCount(seedDocuments.length);
+  await expect(allCount(page)).toHaveText(String(seedDocuments.length));
   expect(await savedReadingData(page)).toEqual(before);
 
   await page.evaluate(() => (window as unknown as { restoreDefaultBooksTransactions: () => void }).restoreDefaultBooksTransactions());
@@ -174,7 +215,7 @@ test("toggling defaults keeps pagination, search, sort and upload filters consis
     currentPage: 0, createdAt: Date.UTC(2030, 0, 1) + index, lastReadAt: null, cover: "sage"
   }));
   await page.evaluate((records) => new Promise<void>((resolve, reject) => {
-    const request = indexedDB.open("folio-reading", 1);
+    const request = indexedDB.open("folio-reading");
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const db = request.result;
@@ -188,7 +229,7 @@ test("toggling defaults keeps pagination, search, sort and upload filters consis
   await page.reload();
   const nav = page.getByRole("navigation", { name: "Document pagination", exact: true });
   await nav.getByRole("button", { name: "Page 3", exact: true }).click();
-  await expect(page.locator(".document-card")).toHaveCount(6);
+  await expect(page.locator(".document-card")).toHaveCount(records.length + seedDocuments.length - 24);
   await defaultBooksToggle(page).uncheck();
   await expect(nav.getByRole("status")).toHaveText("Showing 1–12 of 13 documents");
   await expect(nav.getByRole("button", { name: "Page 1", exact: true })).toHaveAttribute("aria-current", "page");
@@ -206,6 +247,6 @@ test("toggling defaults keeps pagination, search, sort and upload filters consis
   await defaultBooksToggle(page).check();
   await expect(nav.getByRole("status")).toHaveText("Showing 1–12 of 13 documents");
   await page.getByRole("button", { name: /^All documents/ }).click();
-  await expect(nav.getByRole("status")).toHaveText("Showing 1–12 of 30 documents");
-  await expect(allCount(page)).toHaveText("30");
+  await expect(nav.getByRole("status")).toHaveText(`Showing 1–12 of ${records.length + seedDocuments.length} documents`);
+  await expect(allCount(page)).toHaveText(String(records.length + seedDocuments.length));
 });

@@ -1,9 +1,11 @@
-import { openDB, type DBSchema } from "idb";
+import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import { seedDocuments } from "./seed";
-import { defaultSettings, normalizeTranslationProvider, type Highlight, type Note, type ReaderSettings, type ReadingDocument, type Snapshot, type VocabularyItem } from "./types";
+import { normalizeAssetPath } from "./markdown-path";
+import { defaultSettings, normalizeTranslationProvider, type DocumentAsset, type Highlight, type Note, type ReaderSettings, type ReadingDocument, type Snapshot, type VocabularyItem } from "./types";
 
 interface FolioDB extends DBSchema {
   documents: { key: string; value: ReadingDocument };
+  documentAssets: { key: [string, string]; value: DocumentAsset; indexes: { documentId: string } };
   highlights: { key: string; value: Highlight; indexes: { documentId: string } };
   notes: { key: string; value: Note; indexes: { documentId: string } };
   vocabulary: { key: string; value: VocabularyItem };
@@ -12,20 +14,68 @@ interface FolioDB extends DBSchema {
 }
 
 export function database() {
-  return openDB<FolioDB>("folio-reading", 1, {
-    upgrade(db) {
-      db.createObjectStore("documents", { keyPath: "id" });
-      const highlights = db.createObjectStore("highlights", { keyPath: "id" }); highlights.createIndex("documentId", "documentId");
-      const notes = db.createObjectStore("notes", { keyPath: "id" }); notes.createIndex("documentId", "documentId");
-      db.createObjectStore("vocabulary", { keyPath: "id" });
-      db.createObjectStore("settings"); db.createObjectStore("translations");
-    }
+  const connection = openDB<FolioDB>("folio-reading", 2, {
+    upgrade(db, oldVersion) {
+      if (oldVersion < 1) {
+        db.createObjectStore("documents", { keyPath: "id" });
+        const highlights = db.createObjectStore("highlights", { keyPath: "id" }); highlights.createIndex("documentId", "documentId");
+        const notes = db.createObjectStore("notes", { keyPath: "id" }); notes.createIndex("documentId", "documentId");
+        db.createObjectStore("vocabulary", { keyPath: "id" });
+        db.createObjectStore("settings"); db.createObjectStore("translations");
+      }
+      if (oldVersion < 2) {
+        const assets = db.createObjectStore("documentAssets", { keyPath: ["documentId", "path"] });
+        assets.createIndex("documentId", "documentId");
+      }
+    },
+    blocking() { void connection.then((db) => db.close()); }
   });
+  return connection;
+}
+
+/** Persist an entire import together; a failed asset write must not leave a partial document. */
+export async function saveDocumentWithAssets(document: ReadingDocument, assets: DocumentAsset[] = []) {
+  if (document.markdownPath !== undefined && normalizeAssetPath(document.markdownPath) !== document.markdownPath) throw new Error("Invalid Markdown path");
+  if (assets.length && document.type !== "MD") throw new Error("Only Markdown documents can have image assets");
+  const paths = new Set<string>();
+  for (const asset of assets) {
+    if (asset.documentId !== document.id || !asset.path || normalizeAssetPath(asset.path) !== asset.path) throw new Error("Invalid document asset path or owner");
+    if (paths.has(asset.path)) throw new Error("Duplicate document asset path");
+    if (!(asset.blob instanceof Blob) || asset.size !== asset.blob.size || asset.mimeType !== asset.blob.type || !asset.mimeType.startsWith("image/")) throw new Error("Invalid image asset data");
+    paths.add(asset.path);
+  }
+  const db = await database();
+  try {
+    const tx = db.transaction(["documents", "documentAssets"], "readwrite");
+    const completed = tx.done;
+    try {
+      await tx.objectStore("documents").put(document);
+      const store = tx.objectStore("documentAssets");
+      for (const key of await store.index("documentId").getAllKeys(document.id)) await store.delete(key);
+      for (const asset of assets) await store.put(asset);
+      await completed;
+    } catch (error) {
+      try { tx.abort(); } catch { /* A failed request may already have aborted the transaction. */ }
+      await completed.catch(() => {});
+      throw error;
+    }
+  } finally { db.close(); }
+}
+
+export async function loadDocumentAssets(documentId: string): Promise<DocumentAsset[]> {
+  const db = await database();
+  try { return await db.getAllFromIndex("documentAssets", "documentId", documentId); }
+  finally { db.close(); }
 }
 
 export async function loadSnapshot(): Promise<Snapshot> {
   const db = await database();
   try {
+    // Markdown now belongs to user uploads. Retire browser copies of the old
+    // bundled samples while preserving uploaded documents, including same IDs.
+    for (const document of await db.getAll("documents")) {
+      if (document.type === "MD" && !document.uploaded) await removeDocumentData(db, document.id, true);
+    }
     const tx = db.transaction("documents", "readwrite");
     for (const document of seedDocuments) if (!await tx.store.get(document.id)) await tx.store.put(document);
     await tx.done;
@@ -74,17 +124,35 @@ export async function persistSettings(patch: Partial<ReaderSettings>): Promise<R
 }
 export async function removeDocument(id: string) {
   const db = await database();
+  try { await removeDocumentData(db, id); }
+  finally { db.close(); }
+}
+
+async function removeDocumentData(db: IDBPDatabase<FolioDB>, id: string, retiredOnly = false) {
+  const tx = db.transaction(["documents", "documentAssets", "highlights", "notes", "settings"], "readwrite");
+  const completed = tx.done;
   try {
-    const tx = db.transaction(["documents", "highlights", "notes", "settings"], "readwrite");
+    if (retiredOnly) {
+      const document = await tx.objectStore("documents").get(id);
+      // Recheck under the write lock: another tab may have saved an upload since
+      // the initial scan. Never delete that upload or its image resources.
+      if (!document || document.type !== "MD" || document.uploaded) { await completed; return; }
+    }
     await tx.objectStore("documents").delete(id);
+    const assets = tx.objectStore("documentAssets");
+    for (const key of await assets.index("documentId").getAllKeys(id)) await assets.delete(key);
     for (const store of ["highlights", "notes"] as const) {
       const keys = await tx.objectStore(store).index("documentId").getAllKeys(id);
       for (const key of keys) await tx.objectStore(store).delete(key);
     }
     const settings = await tx.objectStore("settings").get("preferences");
     if (settings?.lastDocumentId === id) await tx.objectStore("settings").put({ ...settings, lastDocumentId: null }, "preferences");
-    await tx.done;
-  } finally { db.close(); }
+    await completed;
+  } catch (error) {
+    try { tx.abort(); } catch { /* The failed request may already have aborted the transaction. */ }
+    await completed.catch(() => {});
+    throw error;
+  }
 }
 export async function cachedTranslation(key: string) {
   const db = await database();

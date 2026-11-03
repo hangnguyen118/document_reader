@@ -1,10 +1,11 @@
 import { expect, test } from "@playwright/test";
+import { seedDocuments } from "../../lib/seed";
 import { mockSpeech, selectText, textDOCX, textPDF } from "./helpers";
 
 test("library favorites persist and filter to the selected document", async ({ page }) => {
   const errors: string[] = []; page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/"); await expect(page.getByRole("heading", { name: "A little reading. A world of possibility." })).toBeVisible();
-  await expect(page.locator(".document-card")).toHaveCount(4);
+  await expect(page.locator(".document-card")).toHaveCount(seedDocuments.length);
   await page.getByRole("button", { name: "Add The art of paying attention to favorites" }).click();
   await expect(page.getByRole("button", { name: "Remove The art of paying attention from favorites" })).toHaveAttribute("aria-pressed", "true");
   await page.reload(); await page.getByRole("link", { name: "Favorites", exact: true }).click();
@@ -14,7 +15,7 @@ test("library favorites persist and filter to the selected document", async ({ p
 test("TXT and Markdown uploads persist with safe Markdown preview", async ({ page }) => {
   await page.goto("/");
   await page.getByLabel("Upload documents").setInputFiles([{ name: "a-quiet-page.txt", mimeType: "text/plain", buffer: Buffer.from("A quiet page for reading.\n\nRemember this new idea.") }, { name: "markdown.md", mimeType: "text/markdown", buffer: Buffer.from("# A new chapter\n\n<script>window.injected = true</script>") }]);
-  await expect(page.locator(".document-card")).toHaveCount(6); await page.reload(); await expect(page.locator(".document-card")).toHaveCount(6);
+  await expect(page.locator(".document-card")).toHaveCount(seedDocuments.length + 2); await page.reload(); await expect(page.locator(".document-card")).toHaveCount(seedDocuments.length + 2);
   await page.getByRole("link", { name: "Read markdown", exact: true }).click();
   await expect(page.getByTestId("reader-text").getByRole("heading", { name: "A new chapter", level: 1 })).toBeVisible();
   await expect(page.getByTestId("reader-text").locator("script")).toHaveCount(0);
@@ -23,7 +24,7 @@ test("TXT and Markdown uploads persist with safe Markdown preview", async ({ pag
 test("actual PDF pages and DOCX content are extracted locally", async ({ page }) => {
   await page.goto("/");
   await page.getByLabel("Upload documents").setInputFiles([{ name: "two-pages.pdf", mimeType: "application/pdf", buffer: textPDF(["A quiet morning leaves room for a new idea.", "The second page has another story to tell."]) }, { name: "a-small-story.docx", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", buffer: await textDOCX("A small story worth remembering.") }]);
-  await expect(page.locator(".document-card")).toHaveCount(6);
+  await expect(page.locator(".document-card")).toHaveCount(seedDocuments.length + 2);
   await page.getByRole("link", { name: "Read two pages", exact: true }).click(); await expect(page.getByTestId("reader-text")).toContainText("A quiet morning");
   await page.getByRole("button", { name: "Next page", exact: true }).click(); await expect(page.getByTestId("reader-text")).toContainText("The second page");
   await page.reload(); await expect(page.getByTestId("reader-text")).toContainText("The second page");
@@ -34,7 +35,7 @@ test("PDFs with more than 300 pages import fully and persist the last page", asy
   const pages = Array.from({ length: 301 }, (_, index) => `Page ${index + 1}: Learning React without a page limit.`);
   await page.goto("/");
   await page.getByLabel("Upload documents").setInputFiles({ name: "learningreact-long.pdf", mimeType: "application/pdf", buffer: textPDF(pages) });
-  await expect(page.locator(".document-card")).toHaveCount(5, { timeout: 15_000 });
+  await expect(page.locator(".document-card")).toHaveCount(seedDocuments.length + 1, { timeout: 15_000 });
   await page.getByRole("link", { name: "Read learningreact long", exact: true }).click();
   await expect(page.getByTestId("reader-text")).toHaveText(pages[0]);
   await expect(page.getByRole("combobox", { name: "Current page" }).locator("option")).toHaveCount(pages.length);
@@ -78,7 +79,7 @@ test("browser speech reads selection, whole document, pauses, resumes, and stops
 });
 test("mobile navigation, reading settings, and dark mode persist", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 }); await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.goto("/"); await expect(page.locator(".document-card")).toHaveCount(4);
+  await page.goto("/"); await expect(page.locator(".document-card")).toHaveCount(seedDocuments.length);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole("button", { name: "Open navigation" }).click(); await page.getByRole("link", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Dark For quieter hours", exact: true }).click();

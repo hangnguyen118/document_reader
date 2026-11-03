@@ -6,7 +6,7 @@ Documents, reading progress, notes, highlights, vocabulary, and preferences are 
 
 ## Features
 
-- **Personal library:** Import PDF, DOCX, TXT, and Markdown files; search, filter, sort, paginate, favorite, and resume documents. Four bundled readings let you try the application immediately.
+- **Personal library:** Import PDF, DOCX, TXT, and Markdown files; search, filter, sort, paginate, favorite, and resume documents. Four built-in text readings let you try the application immediately. Markdown documents come from user uploads.
 - **Reading tools:** Restore your last page, jump between pages, and adjust the font, text size, and line spacing.
 - **Markdown preview:** Read formatted Markdown and GFM with syntax-highlighted, copyable code blocks, heading links, a collapsible table of contents, and responsive tables and images in light or dark mode.
 - **Vietnamese typography:** Bundled Noto Serif and Noto Sans render composed and combining accents consistently. Selection, highlights, pagination, and speech keep whole letters together without rewriting saved text or annotation offsets.
@@ -81,7 +81,7 @@ The production server also listens on port **3001**. The build prepares assets; 
 
 1. Open **My library** and choose a bundled reading, upload files, or drag files onto the upload area. Supported extensions are `.pdf`, `.docx`, `.txt`, `.md`, and `.markdown`.
 2. Search, filter, or sort your library; use the heart button to add a document to **Favorites**. Library and Favorites lists display 12 documents per page.
-3. Open a document to read. Page navigation saves your position so you can resume later; Markdown opens as one continuous preview. Adjust typography in the reader or **Settings**.
+3. Open a document to read. Use **Previous page**, **Next page**, or the **Current page** selector; page navigation saves your position so you can resume later. Markdown also uses these controls. Adjust typography in the reader or **Settings**.
 4. Select text to **Listen**, **Highlight**, **Translate**, **Save word**, or add a note. Use the reader notebook to revisit notes and highlights, or **My notes** to search and manage notes across documents.
 5. Use **Listen** to read the current page or whole document. Configure English or Vietnamese speech, a device voice, and playback speed in **Settings**.
 
@@ -94,6 +94,29 @@ The **Show default books** switch controls the visibility of bundled readings in
 ### Read Markdown
 
 Upload a `.md` or `.markdown` file through the existing library uploader. The preview supports headings H1-H6, paragraphs, bold, italic, strikethrough, nested ordered and unordered lists, blockquotes, horizontal rules, inline code, fenced and indented code blocks, links, images, GFM tables, and task-list checkboxes. Open the table of contents or follow heading links to navigate a long document. Checkboxes reflect the source and are read-only.
+
+Markdown previews are paginated near 2,600 rendered characters, with extra space allocated to images. Long paragraphs can span pages while preserving inline formatting and complete Unicode characters. Tables, lists, blockquotes and code blocks stay together, so a page containing one large block may be longer. The full document is parsed before pagination, keeping reference-style links/images valid across pages. The table of contents opens headings on their destination pages. **Listen** supports **This page** and **Whole document**, advancing pages during whole-document playback.
+
+The current Markdown page survives reloads and reopening. Existing saved Markdown receives pagination when opened; its original source and stored source pages remain unchanged. Highlight coordinates remain relative to the full rendered document, and notebook entries can return to their pages. Page counts shown in the library are cached separately from the original source.
+
+For Markdown with images, choose **Upload Markdown folder** and select the common parent folder containing the Markdown file and all its images. If the folder contains multiple Markdown files, choose the document to import. For example:
+
+```text
+MyDocument/                 <- select this folder
+  docs/
+    book.md
+    preview.png             <- ./preview.png
+    images/
+      detail.png            <- ./images/detail.png
+  assets/
+    diagram.jpg             <- ../assets/diagram.jpg
+```
+
+The importer preserves the source and relative folder structure, stores only referenced images in IndexedDB, and supports inline and reference-style Markdown images. Spaces, Unicode filenames and URL-encoded paths are supported. Paths must stay within the selected folder; images with the same name in different folders remain separate. Images survive reloads and reopening in the same browser profile and origin. Nothing is uploaded to a server or image service.
+
+Uploading only the Markdown file still works; missing images produce warnings and placeholders with guidance to import the complete folder. Markdown documents use internal image resources and do not fall back to website paths or external image URLs. Folder upload needs a browser with directory selection; ZIP import is not included.
+
+Supported image formats are PNG, JPEG, GIF, WebP, AVIF, BMP, ICO and SVG, subject to browser decoder support. Files are checked by their contents. SVG is displayed only as an image, never injected as HTML; XML document type/entity declarations are rejected. Invalid or unreadable images produce warnings without discarding readable Markdown. The limits are 20 MiB per image, 500 referenced image files and 100 MiB of images per document; selected folders may contain at most 10,000 files. Unreferenced files are not stored.
 
 Code blocks use Shiki syntax highlighting for common languages including JavaScript, TypeScript, HTML, CSS, JSON, Python, and Bash, with light and dark colors. Use **Copy** to copy the code; long lines scroll horizontally. Unspecified or unsupported languages remain readable plain code. Selection actions, notes, highlights, vocabulary, and speech operate on the rendered text.
 
@@ -192,7 +215,7 @@ lib/
   local-translation.ts       Downloaded-model worker client
   vocabulary-export.ts       Excel and PDF generation
   quiz.ts                    Vocabulary practice logic
-  seed.ts                    Four bundled demo readings
+  seed.ts                    Four built-in text readings
   text.ts                    Pagination, selection, and speech text helpers
   types.ts                   Shared data types and default settings
 public/
@@ -244,18 +267,19 @@ If you configure a Content Security Policy, allow same-origin asset fetches, `wo
 
 ### Browser storage
 
-Folio uses the IndexedDB database **`folio-reading`**, schema version **1**:
+Folio uses the IndexedDB database **`folio-reading`**, schema version **2**. Existing version 1 libraries are upgraded without replacing saved documents, annotations, vocabulary or preferences:
 
 | Store | Contents |
 | --- | --- |
 | `documents` | Extracted pages, metadata, favorites, and reading position |
+| `documentAssets` | Uploaded Markdown images as Blobs, keyed by document ID and normalized relative path |
 | `highlights` | Source document/page, text offsets, text, and color; new Markdown annotations identify rendered-text coordinates |
 | `notes` | Source document/page, quotation, and note body |
 | `vocabulary` | Terms, meanings, context, and source references |
 | `settings` | Reader preferences under the `preferences` key |
 | `translations` | Translation results keyed by engine, version, and text |
 
-The theme is stored separately in localStorage under **`folio-theme`**. Saves are confirmed after browser storage operations succeed. Data belongs to the current browser profile and origin, including the port; there is no cloud synchronization. Clearing site data removes saved information, and cached assets may be evicted by the browser.
+The theme is stored separately in localStorage under **`folio-theme`**. Saves are confirmed after browser storage operations succeed. Markdown documents and their image assets are saved together in one transaction; deleting a document removes its images. Preview Blob URLs are created from saved data and revoked when the preview closes; these temporary URLs are never persisted. Data belongs to the current browser profile and origin, including the port; there is no cloud synchronization. Clearing site data removes saved information, and cached assets may be evicted by the browser.
 
 ### Test environment
 
@@ -266,7 +290,7 @@ The theme is stored separately in localStorage under **`folio-theme`**. Saves ar
 - Imports accept files up to **20 MiB** (shown as 20 MB in the UI) and **1,000,000 extracted characters**. PDF extraction processes every page without a separate page-count limit.
 - PDF and DOCX imports extract text; original layouts and images are not preserved.
 - Markdown does not yet render Mermaid diagrams or LaTeX formulas. Mermaid fences display as copyable plain code. Code blocks longer than 100,000 characters skip syntax highlighting to limit processing cost.
-- Markdown image and document paths resolve against the website URL. Uploading a Markdown file does not import sibling files or folders; use available website paths or hosted images and links.
+- Markdown images must be included through **Upload Markdown folder**. A standalone `.md` upload cannot access sibling files on your device. Folder upload is unavailable on browsers without directory selection, and ZIP import is not supported. Ordinary Markdown links retain their existing URL behavior.
 - Scanned PDFs without selectable text require external OCR. Password-protected PDFs require an unlocked copy.
 - Translation supports **English to Vietnamese** only and accepts **1-5,000 characters** per request. Longer selections are rejected rather than truncated. Machine-generated meanings are editable suggestions that need review, especially for ambiguous words and specialist terms.
 - Downloaded translation requires WebAssembly SIMD, and its speed and memory usage depend on the device. Manual vocabulary entry remains available if translation fails.

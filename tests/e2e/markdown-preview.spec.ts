@@ -1,4 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
+import { copyFile, mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { seedDocuments } from "../../lib/seed";
 import { mockSpeech, selectText } from "./helpers";
 
 const markdown = [
@@ -32,7 +35,7 @@ const markdown = [
   "| Sách | Book |",
   "| Đọc | Read |",
   "",
-  "![Reading illustration](/images/read_book.png)",
+  "![Reading illustration](./images/read_book.png)",
   "",
   "```javascript",
   'const greeting = "Xin chào";',
@@ -84,17 +87,26 @@ const markdown = [
 
 async function uploadMarkdown(page: Page, source = markdown, name = "markdown-preview.md") {
   await page.goto("/");
-  await page.getByLabel("Upload documents").setInputFiles({ name, mimeType: "text/markdown", buffer: Buffer.from(source, "utf8") });
+  if (source.includes("![Reading illustration]")) {
+    const folder = test.info().outputPath("markdown-folder");
+    await mkdir(path.join(folder, "images"), { recursive: true });
+    await writeFile(path.join(folder, name), source, "utf8");
+    await copyFile(path.resolve("public/images/read_book.png"), path.join(folder, "images/read_book.png"));
+    await page.getByLabel("Upload Markdown folder", { exact: true }).setInputFiles(folder);
+  } else {
+    await page.getByLabel("Upload documents").setInputFiles({ name, mimeType: "text/markdown", buffer: Buffer.from(source, "utf8") });
+  }
   const title = name.replace(/\.[^.]+$/, "").replace(/[_-]/g, " ");
   await page.getByRole("link", { name: `Read ${title}`, exact: true }).click();
   await expect(page.locator(".markdown-preview")).toBeVisible();
 }
 
 async function savedMarkdown(page: Page) {
+  await expect(page).toHaveURL(/\/read\/[^/?#]+(?:[?#].*)?$/);
   const id = new URL(page.url()).pathname.split("/").pop()!;
   return page.evaluate(async (documentId) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("folio-reading", 1);
+      const request = indexedDB.open("folio-reading");
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
@@ -132,7 +144,10 @@ test("Markdown uploads render semantic GFM safely and preserve their exact sourc
   await expect(preview.locator("hr")).toHaveCount(1);
   await expect(preview.locator("table th")).toHaveText(["Name", "Meaning"]);
   await expect(preview.locator("table tbody tr")).toHaveCount(2);
-  await expect(preview.getByRole("img", { name: "Reading illustration" })).toHaveAttribute("src", "/images/read_book.png");
+  const illustration = preview.getByRole("img", { name: "Reading illustration" });
+  await expect(illustration).toHaveAttribute("src", /^blob:/);
+  await illustration.scrollIntoViewIfNeeded();
+  await expect.poll(() => illustration.evaluate((image) => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
   await expect(preview.getByRole("link", { name: "Open documentation", exact: true })).toHaveAttribute("href", "https://example.com/docs");
   await expect(preview.getByRole("link", { name: "Jump to part two", exact: true })).toHaveAttribute("href", "#md-part-two");
   await expect(preview.locator("h2").first()).toHaveAttribute("id", "md-part-two");
@@ -208,24 +223,42 @@ test("Markdown remains responsive in light and dark themes with wide tables, ima
     await page.getByRole("button", { name: theme, exact: true }).click();
     await page.goto(url);
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme.startsWith("Light") ? "light" : "dark");
+    await page.getByRole("combobox", { name: "Current page" }).selectOption("0");
     await expect(page.locator(".markdown-preview h1")).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    const code = page.locator(".markdown-code-block pre").last();
-    expect(await code.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);
     const image = page.getByRole("img", { name: "Reading illustration" });
     expect(await image.evaluate((node) => node.getBoundingClientRect().width <= node.parentElement!.getBoundingClientRect().width)).toBe(true);
+    const currentPage = page.getByRole("combobox", { name: "Current page" });
+    const pageCount = await currentPage.locator("option").count();
+    await currentPage.selectOption(String(pageCount - 1));
+    const code = page.locator(".markdown-code-block pre").last();
+    expect(await code.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     const screenshot = testInfo.outputPath(`markdown-${theme.startsWith("Light") ? "light" : "dark"}-mobile.png`);
     await page.screenshot({ path: screenshot, fullPage: true });
     await testInfo.attach(`markdown-${theme.startsWith("Light") ? "light" : "dark"}-mobile`, { path: screenshot, contentType: "image/png" });
   }
 });
 
-test("long Markdown keeps fenced blocks, tables and final headings intact", async ({ page }) => {
+test("long Markdown keeps fenced blocks, tables and final headings intact across reading pages", async ({ page }) => {
   const source = ["# Long document", "", ...Array.from({ length: 100 }, (_, index) => `## Section ${index + 1}\n\nNội dung tiếng Việt ${index + 1}. ${"A paragraph with useful information. ".repeat(4)}\n\n| Column | Value |\n| --- | --- |\n| Row ${index + 1} | Đọc sách |\n`), "```json", JSON.stringify({ content: "large code block ".repeat(300) }, null, 2), "```", "", "## Final heading", ""].join("\n");
   await uploadMarkdown(page, source, "long-markdown.markdown");
-  await expect(page.locator(".markdown-preview h2")).toHaveCount(101);
-  await expect(page.locator(".markdown-preview table")).toHaveCount(100);
-  await expect(page.locator(".markdown-code-block")).toHaveCount(1);
+  const currentPage = page.getByRole("combobox", { name: "Current page" });
+  const pageCount = await currentPage.locator("option").count();
+  expect(pageCount).toBeGreaterThan(1);
+  const headings: string[] = [];
+  let tables = 0;
+  const codeBlocks: string[] = [];
+  for (let index = 0; index < pageCount; index++) {
+    await currentPage.selectOption(String(index));
+    await expect(currentPage).toHaveValue(String(index));
+    headings.push(...await page.locator(".markdown-preview h2").allTextContents());
+    tables += await page.locator(".markdown-preview table").count();
+    codeBlocks.push(...await page.locator(".markdown-code-block code").allTextContents());
+  }
+  expect(headings).toEqual([...Array.from({ length: 100 }, (_, index) => `Section ${index + 1}`), "Final heading"]);
+  expect(tables).toBe(100);
+  expect(codeBlocks).toEqual([JSON.stringify({ content: "large code block ".repeat(300) }, null, 2) + "\n"]);
   await expect(page.locator(".markdown-preview h2").last()).toHaveText("Final heading");
   expect((await savedMarkdown(page)).pages).toEqual([source]);
 });
@@ -233,22 +266,26 @@ test("long Markdown keeps fenced blocks, tables and final headings intact", asyn
 test("empty and incomplete Markdown have a readable preview without replacing source", async ({ page }) => {
   await uploadMarkdown(page, "", "empty-markdown.md");
   await expect(page.locator(".markdown-preview")).toContainText(/empty|no content/i);
+  await expect(page.getByRole("combobox", { name: "Current page", exact: true }).locator("option")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Previous page", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Next page", exact: true })).toBeDisabled();
   expect((await savedMarkdown(page)).pages).toEqual([""]);
   const source = "# Unfinished document\n\n**An unmatched marker\n\n```javascript\nconst unfinished = true;";
   await uploadMarkdown(page, source, "incomplete-markdown.md");
   await expect(page.locator(".markdown-preview h1")).toHaveText("Unfinished document");
   await expect(page.locator(".markdown-preview")).toContainText("An unmatched marker");
   await expect(page.locator(".markdown-code-block code")).toContainText("const unfinished = true;");
+  await expect(page.getByRole("combobox", { name: "Current page", exact: true }).locator("option")).toHaveCount(1);
   expect((await savedMarkdown(page)).pages).toEqual([source]);
 });
 
 test("previously paginated Markdown reconnects fences and retains source-based annotations", async ({ page }) => {
   const pages = ["# Existing Markdown\n\n```javascript\nconst message = ", '"Xin chào";\n```\n\nKeep legacy words.\n'];
   await page.goto("/");
-  await expect(page.locator(".document-card")).toHaveCount(4);
+  await expect(page.locator(".document-card")).toHaveCount(seedDocuments.length);
   await page.evaluate(async (sourcePages) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("folio-reading", 1);
+      const request = indexedDB.open("folio-reading");
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
