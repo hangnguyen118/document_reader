@@ -60,6 +60,21 @@ export interface VocabularyItem {
   page: number;
   createdAt: number;
 }
+export interface BookGroup {
+  id: string;
+  name: string;
+  description?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+export interface BookGroupItem {
+  id: string;
+  groupId: string;
+  /** References ReadingDocument.id for both Folio readings and uploads. */
+  bookId: string;
+  addedAt: number;
+  order: number;
+}
 export interface ReaderSettings {
   showDefaultBooks: boolean;
   translationProvider: TranslationProvider;
@@ -73,6 +88,8 @@ export interface ReaderSettings {
 }
 export interface Snapshot {
   documents: ReadingDocument[];
+  bookGroups: BookGroup[];
+  bookGroupItems: BookGroupItem[];
   highlights: Highlight[];
   notes: Note[];
   vocabulary: VocabularyItem[];

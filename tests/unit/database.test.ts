@@ -178,7 +178,7 @@ test("Markdown source and image bytes survive closing and reopening the database
   const asset = imageAsset(document.id);
   await saveDocumentWithAssets(document, [asset]);
   const db = await database();
-  assert.equal(db.version, 2);
+  assert.equal(db.version, 3);
   assert.ok(db.objectStoreNames.contains("documentAssets"));
   db.close();
 

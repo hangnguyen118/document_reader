@@ -1,7 +1,7 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import { seedDocuments } from "./seed";
 import { normalizeAssetPath } from "./markdown-path";
-import { defaultSettings, normalizeTranslationProvider, type DocumentAsset, type Highlight, type Note, type ReaderSettings, type ReadingDocument, type Snapshot, type VocabularyItem } from "./types";
+import { defaultSettings, normalizeTranslationProvider, type BookGroup, type BookGroupItem, type DocumentAsset, type Highlight, type Note, type ReaderSettings, type ReadingDocument, type Snapshot, type VocabularyItem } from "./types";
 
 interface FolioDB extends DBSchema {
   documents: { key: string; value: ReadingDocument };
@@ -11,10 +11,12 @@ interface FolioDB extends DBSchema {
   vocabulary: { key: string; value: VocabularyItem };
   settings: { key: string; value: ReaderSettings };
   translations: { key: string; value: { text: string; createdAt: number } };
+  bookGroups: { key: string; value: BookGroup & { normalizedName: string }; indexes: { normalizedName: string } };
+  bookGroupItems: { key: string; value: BookGroupItem; indexes: { groupId: string; bookId: string; groupBook: [string, string] } };
 }
 
 export function database() {
-  const connection = openDB<FolioDB>("folio-reading", 2, {
+  const connection = openDB<FolioDB>("folio-reading", 3, {
     upgrade(db, oldVersion) {
       if (oldVersion < 1) {
         db.createObjectStore("documents", { keyPath: "id" });
@@ -26,6 +28,14 @@ export function database() {
       if (oldVersion < 2) {
         const assets = db.createObjectStore("documentAssets", { keyPath: ["documentId", "path"] });
         assets.createIndex("documentId", "documentId");
+      }
+      if (oldVersion < 3) {
+        const groups = db.createObjectStore("bookGroups", { keyPath: "id" });
+        groups.createIndex("normalizedName", "normalizedName", { unique: true });
+        const items = db.createObjectStore("bookGroupItems", { keyPath: "id" });
+        items.createIndex("groupId", "groupId");
+        items.createIndex("bookId", "bookId");
+        items.createIndex("groupBook", ["groupId", "bookId"], { unique: true });
       }
     },
     blocking() { void connection.then((db) => db.close()); }
@@ -79,10 +89,11 @@ export async function loadSnapshot(): Promise<Snapshot> {
     const tx = db.transaction("documents", "readwrite");
     for (const document of seedDocuments) if (!await tx.store.get(document.id)) await tx.store.put(document);
     await tx.done;
-    const [documents, highlights, notes, vocabulary, settings] = await Promise.all([
-      db.getAll("documents"), db.getAll("highlights"), db.getAll("notes"), db.getAll("vocabulary"), db.get("settings", "preferences")
+    const [documents, highlights, notes, vocabulary, settings, groups, bookGroupItems] = await Promise.all([
+      db.getAll("documents"), db.getAll("highlights"), db.getAll("notes"), db.getAll("vocabulary"), db.get("settings", "preferences"), db.getAll("bookGroups"), db.getAll("bookGroupItems")
     ]);
-    return { documents, highlights, notes, vocabulary, settings: { ...defaultSettings, ...settings, translationProvider: normalizeTranslationProvider(settings?.translationProvider) } };
+    const bookGroups = groups.map(({ normalizedName: _normalizedName, ...group }) => group);
+    return { documents, highlights, notes, vocabulary, bookGroups, bookGroupItems, settings: { ...defaultSettings, ...settings, translationProvider: normalizeTranslationProvider(settings?.translationProvider) } };
   } finally { db.close(); }
 }
 
@@ -129,7 +140,7 @@ export async function removeDocument(id: string) {
 }
 
 async function removeDocumentData(db: IDBPDatabase<FolioDB>, id: string, retiredOnly = false) {
-  const tx = db.transaction(["documents", "documentAssets", "highlights", "notes", "settings"], "readwrite");
+  const tx = db.transaction(["documents", "documentAssets", "highlights", "notes", "settings", "bookGroupItems"], "readwrite");
   const completed = tx.done;
   try {
     if (retiredOnly) {
@@ -141,6 +152,8 @@ async function removeDocumentData(db: IDBPDatabase<FolioDB>, id: string, retired
     await tx.objectStore("documents").delete(id);
     const assets = tx.objectStore("documentAssets");
     for (const key of await assets.index("documentId").getAllKeys(id)) await assets.delete(key);
+    const memberships = tx.objectStore("bookGroupItems");
+    for (const key of await memberships.index("bookId").getAllKeys(id)) await memberships.delete(key);
     for (const store of ["highlights", "notes"] as const) {
       const keys = await tx.objectStore(store).index("documentId").getAllKeys(id);
       for (const key of keys) await tx.objectStore(store).delete(key);

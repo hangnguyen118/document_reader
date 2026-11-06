@@ -3,6 +3,7 @@
 import { ThemeProvider, type ThemeConfig } from "@hangnguyen1902/theme";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { deleteRecord, loadSnapshot, patchDocument, persistSettings, removeDocument, saveDocumentWithAssets, saveRecord } from "@/lib/database";
+import { createBookGroup, updateBookGroup, deleteBookGroup, setBookGroupMembership } from "@/lib/playlists";
 import { defaultSettings, type DocumentAsset, type Highlight, type Note, type ReaderSettings, type ReadingDocument, type Snapshot, type VocabularyItem } from "@/lib/types";
 
 const themeConfig: ThemeConfig = {
@@ -13,7 +14,7 @@ const themeConfig: ThemeConfig = {
   fontFamily: { sans: '"Segoe UI", Inter, system-ui, sans-serif' },
   radius: { md: "0.5rem", lg: "0.75rem" }
 };
-const initial: Snapshot = { documents: [], highlights: [], notes: [], vocabulary: [], settings: defaultSettings };
+const initial: Snapshot = { documents: [], bookGroups: [], bookGroupItems: [], highlights: [], notes: [], vocabulary: [], settings: defaultSettings };
 
 function useStore() {
   const [snapshot, setSnapshot] = useState<Snapshot>(initial);
@@ -37,12 +38,30 @@ function useStore() {
   const commit = useCallback(async <T,>(operation: () => Promise<T>, apply: (value: T) => void): Promise<T> => {
     setPending((value) => value + 1);
     try { const value = await operation(); apply(value); setError(""); return value; }
-    catch { setError("Your changes could not be saved on this device. Check available browser storage and try again."); throw new Error("Could not save changes"); }
+    catch (cause) { setError("Your changes could not be saved on this device. Check available browser storage and try again."); throw cause; }
     finally { setPending((value) => value - 1); }
   }, []);
   const addDocument = useCallback((document: ReadingDocument, assets: DocumentAsset[] = []) => commit(() => saveDocumentWithAssets(document, assets), () => setSnapshot((state) => ({ ...state, documents: [...state.documents, document] }))), [commit]);
   const updateDocument = useCallback((id: string, patch: Partial<ReadingDocument>) => commit(() => patchDocument(id, patch), (document) => setSnapshot((state) => ({ ...state, documents: state.documents.map((item) => item.id === id ? document : item) }))), [commit]);
-  const deleteDocument = useCallback((id: string) => commit(() => removeDocument(id), () => setSnapshot((state) => ({ ...state, documents: state.documents.filter((item) => item.id !== id), highlights: state.highlights.filter((item) => item.documentId !== id), notes: state.notes.filter((item) => item.documentId !== id), settings: state.settings.lastDocumentId === id ? { ...state.settings, lastDocumentId: null } : state.settings }))), [commit]);
+  const deleteDocument = useCallback((id: string) => commit(() => removeDocument(id), () => setSnapshot((state) => ({ ...state, documents: state.documents.filter((item) => item.id !== id), bookGroupItems: state.bookGroupItems.filter((item) => item.bookId !== id), highlights: state.highlights.filter((item) => item.documentId !== id), notes: state.notes.filter((item) => item.documentId !== id), settings: state.settings.lastDocumentId === id ? { ...state.settings, lastDocumentId: null } : state.settings }))), [commit]);
+  const createPlaylist = useCallback(async (input: { name: string; description?: string }, bookId?: string) => {
+    const { group } = await commit(() => createBookGroup(input, bookId), ({ group, item }) => setSnapshot((state) => ({
+      ...state, bookGroups: [...state.bookGroups, group], bookGroupItems: item ? [...state.bookGroupItems, item] : state.bookGroupItems
+    })));
+    return group;
+  }, [commit]);
+  const updatePlaylist = useCallback((id: string, input: { name: string; description?: string }) => commit(() => updateBookGroup(id, input), (group) => setSnapshot((state) => ({
+    ...state, bookGroups: state.bookGroups.map((item) => item.id === id ? group : item)
+  }))), [commit]);
+  const deletePlaylist = useCallback((id: string) => commit(() => deleteBookGroup(id), () => setSnapshot((state) => ({
+    ...state, bookGroups: state.bookGroups.filter((item) => item.id !== id), bookGroupItems: state.bookGroupItems.filter((item) => item.groupId !== id)
+  }))), [commit]);
+  const setPlaylistMembership = useCallback(async (groupId: string, bookId: string, included: boolean) => {
+    await commit(() => setBookGroupMembership(groupId, bookId, included), ({ group, item }) => setSnapshot((state) => ({
+      ...state, bookGroups: state.bookGroups.map((value) => value.id === group.id ? group : value),
+      bookGroupItems: [...state.bookGroupItems.filter((value) => value.groupId !== groupId || value.bookId !== bookId), ...(item ? [item] : [])]
+    })));
+  }, [commit]);
   const updateSettings = useCallback((patch: Partial<ReaderSettings>) => commit(() => persistSettings(patch), (settings) => setSnapshot((state) => ({ ...state, settings }))), [commit]);
   const saveHighlight = useCallback((highlight: Highlight) => commit(() => saveRecord("highlights", highlight), () => setSnapshot((state) => ({ ...state, highlights: [...state.highlights.filter((item) => item.id !== highlight.id), highlight] }))), [commit]);
   const saveNote = useCallback((note: Note) => commit(() => saveRecord("notes", note), () => setSnapshot((state) => ({ ...state, notes: [...state.notes.filter((item) => item.id !== note.id), note] }))), [commit]);
@@ -51,7 +70,7 @@ function useStore() {
   const removeNote = useCallback((id: string) => commit(() => deleteRecord("notes", id), () => setSnapshot((state) => ({ ...state, notes: state.notes.filter((item) => item.id !== id) }))), [commit]);
   const removeVocabulary = useCallback((id: string) => commit(() => deleteRecord("vocabulary", id), () => setSnapshot((state) => ({ ...state, vocabulary: state.vocabulary.filter((item) => item.id !== id) }))), [commit]);
 
-  return { ...snapshot, ready, pending, error, notice, notify, addDocument, updateDocument, deleteDocument, updateSettings, saveHighlight, saveNote, saveVocabulary, removeHighlight, removeNote, removeVocabulary };
+  return { ...snapshot, ready, pending, error, notice, notify, createPlaylist, updatePlaylist, deletePlaylist, setPlaylistMembership, addDocument, updateDocument, deleteDocument, updateSettings, saveHighlight, saveNote, saveVocabulary, removeHighlight, removeNote, removeVocabulary };
 }
 const ReadingContext = createContext<ReturnType<typeof useStore> | null>(null);
 export function Providers({ children }: { children: ReactNode }) {

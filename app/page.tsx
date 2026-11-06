@@ -1,2 +1,10 @@
 import { LibraryView } from "@/components/library-view";
-export default function Page() { return <LibraryView />; }
+import { Analytics } from "@vercel/analytics/next";
+export default function Page() {
+  return (
+    <>
+      <LibraryView />
+      <Analytics />
+    </>
+  );
+}
