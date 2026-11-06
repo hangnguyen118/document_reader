@@ -9,6 +9,23 @@ test("plain text pagination preserves all characters and paragraph boundaries", 
   assert.ok(pages.length > 1); assert.equal(pages.join(""), text);
   assert.ok(pages.every((page) => page.length <= 180));
 });
+
+test("plain text defaults to 15,000 characters per page and preserves exact boundary content", () => {
+  for (const length of [14_999, 15_000, 15_001]) {
+    const text = "x".repeat(length);
+    const pages = paginateText(text);
+    assert.equal(pages.length, length > 15_000 ? 2 : 1);
+    assert.equal(pages[0].length, Math.min(length, 15_000));
+    assert.equal(pages.join(""), text);
+  }
+});
+
+test("default text pagination prefers a paragraph boundary within the longer page", () => {
+  const first = "a".repeat(10_000);
+  const second = "b".repeat(8_000);
+  const text = `${first}\n\n${second}`;
+  assert.deepEqual(paginateText(text), [first, `\n\n${second}`]);
+});
 test("normalization supports Windows line endings and empty documents", () => {
   assert.equal(normalizeText("\r\n A\r\nB\u0000 \r\n"), "A\nB");
   assert.deepEqual(paginateText(" \n\t"), []); assert.equal(countWords(""), 0);
@@ -34,6 +51,16 @@ test("Markdown uploads retain their original source for preview without storing 
   assert.equal(result.type, "MD"); assert.equal(result.title, "my reading");
   assert.equal(result.pages.join(""), content); assert.equal(result.uploaded, true);
   assert.equal(result.wordCount, countWords(content));
+});
+
+test("new TXT imports use the longer page target without losing text", async () => {
+  const content = "x".repeat(15_001);
+  const result = await importDocument(new File([content], "long-reading.txt"));
+  assert.equal(result.type, "TXT");
+  assert.equal(result.pages.length, 2);
+  assert.equal(result.pages[0].length, 15_000);
+  assert.equal(result.pages[1].length, 1);
+  assert.equal(result.pages.join(""), content);
 });
 test("uploads reject empty, unsupported, and oversized files", async () => {
   await assert.rejects(() => importDocument(new File([" "], "empty.txt")), /readable text/);

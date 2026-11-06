@@ -1,5 +1,6 @@
 import { importDocument, MAX_FILE_BYTES } from "./import-document";
 import { parseMarkdown } from "./markdown";
+import { isMarkdownDataImageUrl } from "./markdown-image-url";
 import { normalizeAssetPath, resolveMarkdownAssetPath } from "./markdown-path";
 import type { DocumentAsset, ReadingDocument } from "./types";
 
@@ -94,6 +95,12 @@ export async function importMarkdownWithAssets(file: File, options: MarkdownImpo
   const warnings: string[] = [];
   const referenced = new Map<string, File>();
   for (const source of new Set(model.imageSources)) {
+    // Embedded images stay in the original Markdown, never in the asset store.
+    if (isMarkdownDataImageUrl(source)) continue;
+    if (/^data:/i.test(source)) {
+      warnings.push("Invalid or unsupported embedded image. Use Base64 PNG, JPEG, GIF, WebP, or AVIF.");
+      continue;
+    }
     const path = resolveMarkdownAssetPath(markdownPath, source);
     if (!path) { warnings.push(`Unsupported image path: ${source || "(empty path)"}. Images must use relative paths inside the selected folder.`); continue; }
     const resource = available.get(path);

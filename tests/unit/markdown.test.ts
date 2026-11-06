@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { Element, Root, RootContent } from "hast";
 import { markdownHighlightRanges, markdownNodeText, parseMarkdown, safeMarkdownUrl } from "../../lib/markdown";
+import { isMarkdownDataImageUrl } from "../../lib/markdown-image-url";
 import type { Highlight } from "../../lib/types";
 
 function elements(node: Root | RootContent, name?: string): Element[] {
@@ -55,6 +56,105 @@ test("parsed unsafe URLs are removed after Markdown entities are decoded", () =>
   assert.equal(elements(model.tree, "img")[0].properties.src, undefined);
   assert.equal(links[2].properties.href, "https://example.com/docs");
   assert.ok(links.every((link) => Array.isArray(link.properties.rel) && link.properties.rel.includes("noopener") && link.properties.rel.includes("noreferrer")));
+});
+
+test("supported raster Base64 data URLs are accepted only as image sources and preserved verbatim", () => {
+  const payload = Buffer.from([0, 255, 254, 253, 252, 251, 250]).toString("base64");
+  for (const mime of ["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"]) {
+    const url = `data:${mime};base64,${payload}`;
+    assert.equal(isMarkdownDataImageUrl(url), true, mime);
+    assert.equal(safeMarkdownUrl(url, true), url, mime);
+    assert.equal(safeMarkdownUrl(url), undefined, `link ${mime}`);
+    const model = parseMarkdown(`![Embedded ${mime}](${url} "Original image")\n\n[Download](${url})`);
+    const image = elements(model.tree, "img")[0];
+    assert.equal(image.properties.src, url);
+    assert.equal(image.data?.markdownImageSource, url);
+    assert.equal(image.properties.alt, `Embedded ${mime}`);
+    assert.equal(image.properties.title, "Original image");
+    assert.equal(image.properties.loading, "lazy");
+    assert.equal(image.properties.decoding, "async");
+    assert.deepEqual(model.imageSources, [url]);
+    assert.equal(elements(model.tree, "a")[0].properties.href, undefined);
+  }
+});
+
+test("data image validation rejects unsupported MIME types, malformed syntax and invalid Base64", () => {
+  const invalid = [
+    "data:image/svg+xml;base64,PHN2Zz4=", "data:text/html;base64,PHNjcmlwdD4=",
+    "data:application/javascript;base64,YWxlcnQoMSk=", "data:image/bmp;base64,Qk0=",
+    "data:image/x-icon;base64,AAABAA==", "data:image/jpg;base64,/9j/", "data:;base64,AAAA",
+    "data:image/png,AAAA", "data:image/png;base64", "data:image/png;base64,",
+    "data:image/png;charset=utf-8;base64,AAAA", "data:image/png;base64;foo,AAAA",
+    "data:image/png;base64,A", "data:image/png;base64,AA", "data:image/png;base64,AAA",
+    "data:image/png;base64,A===", "data:image/png;base64,====", "data:image/png;base64,AA=A",
+    "data:image/png;base64,AA==AAAA", "data:image/png;base64,AAA==", "data:image/png;base64,AAAA=",
+    "data:image/png;base64,AB==", "data:image/png;base64,AAB=",
+    "data:image/png;base64,AA-A", "data:image/png;base64,AA_A", "data:image/png;base64,AA$A",
+    "data:image/png;base64,%2F%2F8=", "data:image/png;base64,AA AA",
+    "data:image/png;base64,AA\nAA", "data:image/png;base64,AA\tAA", "data:image/png;base64,AA\u0000AA",
+    " data:image/png;base64,AAAA", "data:image/png;base64,AAAA ", "data:image/png;base64,AAAA\n",
+    "data:image/png;base64,AAAA#fragment", "data:image/png;base64,AAAA?query", "da\nta:image/png;base64,AAAA"
+  ];
+  for (const url of invalid) {
+    assert.equal(isMarkdownDataImageUrl(url), false, url);
+    assert.equal(safeMarkdownUrl(url, true), undefined, url);
+    assert.equal(safeMarkdownUrl(url), undefined, `link ${url}`);
+  }
+  for (const payload of ["AA==", "AAA=", "AAAA", "/w==", "//8=", "////"]) {
+    assert.equal(isMarkdownDataImageUrl(`data:image/png;base64,${payload}`), true, payload);
+  }
+  const upperCase = "DATA:IMAGE/PNG;BASE64,/w==";
+  assert.equal(isMarkdownDataImageUrl(upperCase), true);
+  assert.equal(safeMarkdownUrl(upperCase, true), upperCase);
+  assert.equal(safeMarkdownUrl(upperCase), undefined);
+});
+
+test("embedded images survive mixed Markdown structures, references and pagination", () => {
+  const url = "data:image/png;base64,AA==";
+  const source = [
+    `# Heading ![Heading image](${url})`,
+    `Before ![Paragraph image](${url}) after.`,
+    `- List ![List image](${url})`,
+    `> Quote ![Quote image](${url})`,
+    `| Picture |\n| --- |\n| ![Table image](${url}) |`,
+    "![Reference image][embedded]",
+    `[embedded]: ${url} "Reference title"`,
+    `![Empty alt](${url})`,
+    `![](${url})`,
+    `\`![Code](${url})\``,
+    `<img src="${url}" onerror="window.attack=true">`,
+    "Remaining **Markdown** stays readable."
+  ].join("\n\n");
+  const model = parseMarkdown(source);
+  const images = elements(model.tree, "img");
+  assert.equal(images.length, 8);
+  assert.deepEqual(images.map((image) => image.properties.alt), ["Heading image", "Paragraph image", "List image", "Quote image", "Table image", "Reference image", "Empty alt", ""]);
+  assert.ok(images.every((image) => image.properties.src === url && image.data?.markdownImageSource === url));
+  for (const tag of ["h1", "p", "li", "blockquote", "td"]) {
+    assert.ok(elements(model.tree, tag).some((node) => elements(node, "img").length > 0), tag);
+  }
+  assert.equal(images[5].properties.title, "Reference title");
+  assert.deepEqual(model.imageSources, Array(8).fill(url));
+  assert.deepEqual(model.pages.flatMap((page) => page.imageSources), model.imageSources);
+  assert.equal(model.pages.flatMap((page) => elements(page.tree, "img")).length, 8);
+  assert.ok(model.text.includes("Remaining Markdown stays readable."));
+  assert.ok(model.text.includes(`![Code](${url})`));
+  assert.ok(!model.text.includes("window.attack"));
+});
+
+test("large embedded image URLs remain complete without entering rendered text or creating extra pages", () => {
+  const url = `data:image/png;base64,${"/wD+".repeat(512 * 1024)}AA==`;
+  assert.equal(isMarkdownDataImageUrl(url), true);
+  assert.equal(safeMarkdownUrl(url, true), url);
+  const model = parseMarkdown(`Before image.\n\n![Large image](${url})\n\nAfter image.`);
+  const image = elements(model.tree, "img")[0];
+  assert.equal(image.properties.src, url);
+  assert.equal(image.data?.markdownImageSource, url);
+  assert.deepEqual(model.imageSources, [url]);
+  assert.equal(model.pages.length, 1);
+  assert.ok(model.text.includes("Before image."));
+  assert.ok(model.text.includes("After image."));
+  assert.ok(!model.text.includes("data:"));
 });
 
 test("heading IDs support Unicode, formatting, duplicates and document-scoped slug generation", () => {

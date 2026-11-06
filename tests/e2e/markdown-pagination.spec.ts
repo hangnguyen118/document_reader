@@ -1,12 +1,15 @@
 import { expect, test, type Page } from "@playwright/test";
 import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { MARKDOWN_PAGE_TARGET } from "../../lib/markdown";
 import { selectText } from "./helpers";
 
 function readingSource(chapters = 12) {
+  const sentence = "Read carefully and give each idea enough room to develop. A familiar story rewards a thoughtful second reading. ";
+  const paragraph = sentence.repeat(Math.ceil(MARKDOWN_PAGE_TARGET / 4 / sentence.length));
   return ["# A paginated book", "", ...Array.from({ length: chapters }, (_, index) => [
     `## Chapter ${index + 1}`,
-    `Passage ${index + 1}: ${"Read carefully and give each idea enough room to develop. A familiar story rewards a thoughtful second reading. ".repeat(7)}`
+    `Passage ${index + 1}: ${paragraph}`
   ].join("\n\n")), ""].join("\n\n");
 }
 
@@ -156,9 +159,11 @@ test("a legacy continuous Markdown note opens its quoted reading page without re
 });
 
 test("Markdown folder images and reference definitions remain valid on different reading pages", async ({ page }, testInfo) => {
+  const sentence = "Images and words explain this part of the story together. ";
+  const paragraph = sentence.repeat(Math.ceil(MARKDOWN_PAGE_TARGET / 4 / sentence.length));
   const source = ["# An illustrated book", ...Array.from({ length: 8 }, (_, index) => [
     `## Illustration ${index + 1}`,
-    `Picture passage ${index + 1}. ${"Images and words explain this part of the story together. ".repeat(12)}`,
+    `Picture passage ${index + 1}. ${paragraph}`,
     `![Diagram ${index + 1}][image${index % 2}]`
   ].join("\n\n")), "[image0]: ./images/first.png", "[image1]: ./images/second.png", ""].join("\n\n");
   const folder = testInfo.outputPath("illustrated-markdown");
@@ -217,13 +222,14 @@ test("Markdown speech distinguishes the current page and whole document and foll
       speak(utterance: Utterance) { state.calls.push(utterance.text); state.current = utterance; utterance.onboundary?.({ charIndex: 0, charLength: 1 }); }
     } });
   });
-  const { currentPage, pageCount } = await uploadReading(page, readingSource(8), "spoken-pages.md");
+  const source = readingSource(8);
+  const { currentPage, pageCount } = await uploadReading(page, source, "spoken-pages.md");
   await currentPage.selectOption("1");
   const visibleText = (await page.locator(".markdown-preview [data-markdown-start]").allTextContents()).join("");
   await page.getByRole("combobox", { name: "Reading scope", exact: true }).selectOption("page");
   const finishSpeech = async () => {
     const visited = new Set<string>();
-    for (let index = 0; index < 150; index++) {
+    for (let index = 0; index < Math.ceil(source.length / 100) + 10; index++) {
       visited.add(await currentPage.inputValue());
       const advanced = await page.evaluate(() => {
         const state = (window as unknown as { paginatedSpeech: { current: { onend?: (() => void) | null } | null } }).paginatedSpeech;

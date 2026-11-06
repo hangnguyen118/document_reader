@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { MARKDOWN_PAGE_TARGET } from "../../lib/markdown";
 import { selectText, textPDF } from "./helpers";
 
 test("Settings Back preserves the reading page, scroll, and reader controls after resizing text", async ({ page }) => {
@@ -65,15 +66,19 @@ test("Settings Back preserves the reading page, scroll, and reader controls afte
 });
 
 test("Settings Back keeps a long Markdown passage visible when larger text reflows earlier content", async ({ page }) => {
-  const paragraphs = Array.from({ length: 60 }, (_, index) => `Passage ${index + 1}: A quiet reading session gives each idea enough room to develop. Returning to a familiar passage helps us follow the story without searching for our place again. The words on this page remain ready for another thoughtful moment.`);
+  const passageText = "A quiet reading session gives each idea enough room to develop. Returning to a familiar passage helps us follow the story without searching for our place again. The words on this page remain ready for another thoughtful moment.";
+  const passagesPerPage = Math.ceil(MARKDOWN_PAGE_TARGET / passageText.length);
+  const passageNumber = passagesPerPage + 12;
+  const paragraphs = Array.from({ length: passagesPerPage * 3 }, (_, index) => `Passage ${index + 1}: ${passageText}`);
   await page.goto("/");
   await page.getByLabel("Upload documents").setInputFiles({
     name: "a-long-reading-session.md", mimeType: "text/markdown",
     buffer: Buffer.from(`# A long reading session\n\n${paragraphs.join("\n\n")}`)
   });
   await page.getByRole("link", { name: "Read a long reading session", exact: true }).click();
-  const passage = page.getByTestId("reader-text").locator("p").filter({ hasText: /^Passage 36:/ });
+  const passage = page.getByTestId("reader-text").locator("p").filter({ hasText: new RegExp(`^Passage ${passageNumber}:`) });
   const currentPage = page.getByRole("combobox", { name: "Current page" });
+  await expect.poll(() => currentPage.locator("option").count()).toBeGreaterThan(1);
   const pageCount = await currentPage.locator("option").count();
   expect(pageCount).toBeGreaterThan(1);
   for (let index = 0; index < pageCount && !await passage.count(); index++) {

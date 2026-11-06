@@ -1,6 +1,8 @@
 import { segmentGraphemes, type GraphemeSegments } from "./graphemes";
 import type { ReadingDocument } from "./types";
 
+export const TEXT_PAGE_TARGET = 15_000;
+
 export function documentPageCount(document: ReadingDocument): number {
   if (document.type !== "MD") return Math.max(1, document.pages.length);
   const count = document.markdownPageCount;
@@ -26,7 +28,7 @@ function graphemeSplit(segments: GraphemeSegments, offset: number, start: number
 }
 
 /** Split plain text at paragraph/sentence boundaries without losing content. */
-export function paginateText(input: string, target = 2600): string[] {
+export function paginateText(input: string, target = TEXT_PAGE_TARGET): string[] {
   const text = normalizeText(input);
   if (!text) return [];
   const pages: string[] = [];

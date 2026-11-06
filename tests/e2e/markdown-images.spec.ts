@@ -1,6 +1,7 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { MARKDOWN_PAGE_TARGET } from "../../lib/markdown";
 
 async function createFolder(testInfo: TestInfo, files: Record<string, string | null>) {
   const folder = testInfo.outputPath("markdown-package");
@@ -41,10 +42,11 @@ test("folder images resolve exact paths, persist after reload and reopening, and
     URL.revokeObjectURL = (url) => { tracker.revoked.push(url); revoke(url); };
   });
   const filename = "Hình #1 + 100%.png";
+  const openingSentence = "The opening passage gives the illustrations their own reading page. ";
   const source = [
     "# Internal illustrations",
     "",
-    "A **formatted** paragraph before the images.",
+    `A **formatted** paragraph before the images. ${openingSentence.repeat(Math.ceil(MARKDOWN_PAGE_TARGET / openingSentence.length))}`,
     "",
     '![Root image](./preview.png "Original title")',
     "![Nested image](./images/preview.png)",

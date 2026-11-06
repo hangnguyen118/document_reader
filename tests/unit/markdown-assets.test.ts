@@ -114,6 +114,48 @@ test("single Markdown uploads remain readable and warn about missing, invalid an
   assert.deepEqual((await importMarkdownWithAssets(new File([""], "book.md"))).document.pages, [""]);
 });
 
+test("single Markdown imports retain supported embedded images without separate assets or warnings", async () => {
+  const payload = pngBytes.toString("base64");
+  const urls = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"].map((mime) => `data:${mime};base64,${payload}`);
+  const source = `# Embedded images\n\n${urls.map((url, index) => `![Image ${index}](${url})`).join("\n\n")}\n\n![Again](${urls[0]})\n\nStill readable.`;
+  const progress: string[] = [];
+  const result = await importMarkdownWithAssets(new File([source], "embedded.md"), { onProgress: (message) => progress.push(message) });
+  assert.deepEqual(result.document.pages, [source]);
+  assert.deepEqual(result.assets, []);
+  assert.deepEqual(result.warnings, []);
+  assert.ok(!progress.some((message) => message.includes("Checking image")));
+});
+
+test("embedded images coexist with local folder assets without duplicated image resources", async () => {
+  const url = `data:image/png;base64,${pngBytes.toString("base64")}`;
+  const source = `# Mixed\n\n![Embedded](${url})\n\n![Local](../images/local.png)\n\n![Repeated embedded](${url})\n\n![Local alias](../images/local.png?version=2)`;
+  const result = await importMarkdownWithAssets(new File([source], "book.md"), {
+    markdownPath: "docs/book.md",
+    files: [{ path: "images/local.png", file: new File([pngBytes], "local.png") }]
+  });
+  assert.deepEqual(result.document.pages, [source]);
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.assets.length, 1);
+  assert.equal(result.assets[0].path, "images/local.png");
+  assert.deepEqual(Buffer.from(await result.assets[0].blob.arrayBuffer()), pngBytes);
+});
+
+test("invalid embedded data warns safely without dropping Markdown or exposing large payloads", async () => {
+  const invalidUrls = [
+    "data:image/svg+xml;base64,PHN2Zz4=",
+    "data:text/html;base64,PHNjcmlwdD4=",
+    "data:image/png;base64,AA=A",
+    `data:image/png;base64,${"A".repeat(256 * 1024)}$`
+  ];
+  const source = `Before.\n\n${invalidUrls.map((url, index) => `![Invalid ${index}](${url})`).join("\n\n")}\n\nAfter.`;
+  const result = await importMarkdownWithAssets(new File([source], "invalid.md"));
+  assert.deepEqual(result.document.pages, [source]);
+  assert.deepEqual(result.assets, []);
+  assert.equal(result.warnings.length, invalidUrls.length);
+  assert.ok(result.warnings.every((warning) => warning.length < 1024));
+  assert.ok(!result.warnings.some((warning) => warning.includes("A".repeat(1024))));
+});
+
 test("invalid, oversized or unreadable images warn without dropping the Markdown or valid images", async () => {
   const oversized = new File([pngBytes], "large.png");
   Object.defineProperty(oversized, "size", { value: MAX_FILE_BYTES + 1 });

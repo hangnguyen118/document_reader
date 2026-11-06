@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ComponentPropsWithoutRef, type ReactNode } from "react";
 import type { ExtraProps } from "hast-util-to-jsx-runtime";
 import { loadDocumentAssets } from "@/lib/database";
+import { isMarkdownDataImageUrl } from "@/lib/markdown-image-url";
 import { resolveMarkdownAssetPath } from "@/lib/markdown-path";
 
 type ImageStatus = "loading" | "ready" | "error";
@@ -23,10 +24,12 @@ export function MarkdownImages({ documentId, markdownPath = "document.md", image
   imageSources: readonly string[];
   children: ReactNode;
 }) {
-  const paths = useMemo(() => [...new Set(imageSources.flatMap((source) => {
+  // Data URLs, including invalid ones, never need folder assets or notices.
+  const assetSources = useMemo(() => [...new Set(imageSources)].filter((source) => !/^data:/i.test(source)), [imageSources]);
+  const paths = useMemo(() => [...new Set(assetSources.flatMap((source) => {
     const path = resolveMarkdownAssetPath(markdownPath, source);
     return path ? [path] : [];
-  }))].sort(), [imageSources, markdownPath]);
+  }))].sort(), [assetSources, markdownPath]);
   const scope = JSON.stringify([documentId, markdownPath, paths]);
   const [loaded, setLoaded] = useState<LoadedImages | null>(null);
   // Hide a previous document's URLs immediately, before its effect is cleaned up.
@@ -65,7 +68,7 @@ export function MarkdownImages({ documentId, markdownPath = "document.md", image
     // do not recreate URLs. Each async request owns exactly its cleanup set.
   }, [documentId, scope]);
 
-  const unavailable = [...new Set(imageSources)].filter((source) => {
+  const unavailable = assetSources.filter((source) => {
     const path = resolveMarkdownAssetPath(markdownPath, source);
     return !path || status === "ready" && !urls.has(path);
   }).length;
@@ -85,26 +88,30 @@ export function MarkdownImage({ node, src, alt = "", title }: ExtraProps & Compo
   const images = useContext(ImagesContext);
   const original = node?.data?.markdownImageSource;
   const source = typeof original === "string" ? original : typeof src === "string" ? src : "";
-  const path = resolveMarkdownAssetPath(images.markdownPath, source);
-  const url = path ? images.urls.get(path) : undefined;
+  const embedded = useMemo(() => isMarkdownDataImageUrl(source), [source]);
+  const path = embedded ? undefined : resolveMarkdownAssetPath(images.markdownPath, source);
+  const url = embedded ? source : path ? images.urls.get(path) : undefined;
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
-  const invalid = !path;
+  const invalid = !embedded && !path;
   const loading = Boolean(path) && images.status === "loading";
   const failed = Boolean(url && failedUrl === url);
 
   if (url && !failed) return <img src={url} alt={alt} title={title} loading="lazy" decoding="async" data-markdown-asset={path} onError={() => setFailedUrl(url)} />;
 
   const state = invalid ? "invalid" : loading ? "loading" : failed ? "error" : "missing";
-  const reason = invalid ? "This image needs a relative path inside the uploaded folder."
+  const reason = invalid ? /^data:/i.test(source)
+    ? "Invalid or unsupported embedded image. Use Base64 PNG, JPEG, GIF, WebP, or AVIF."
+    : "This image needs a relative path inside the uploaded folder."
     : loading ? "Loading image…"
-      : images.status === "error" ? "Saved image could not be read from this browser."
+      : !embedded && images.status === "error" ? "Saved image could not be read from this browser."
         : failed ? "This image file could not be displayed."
           : "Image not included. Upload the Markdown folder with its images.";
+  const displaySource = /^data:/i.test(source) && source.length > 80 ? `${source.slice(0, 80)}…` : source;
   // Images can occur inside paragraphs; a span keeps the generated HTML valid.
   // No text-position markers are added, so notices cannot change annotations.
   return <span className="markdown-image-placeholder" role="img" aria-label={alt || "Unavailable image"} aria-description={reason} title={title} data-reader-ignore="true" data-image-state={state}>
     <span className="markdown-image-label">{alt || "Image"}</span>
     <span>{reason}</span>
-    {source && <code>{source}</code>}
+    {displaySource && <code>{displaySource}</code>}
   </span>;
 }

@@ -33,7 +33,7 @@ test("Markdown render pages keep every character and document-global selection m
 });
 
 test("headings retain stable IDs, point to their render page and stay with the following content", () => {
-  const source = Array.from({ length: 12 }, (_, index) => `## Same heading\n\n${"A full paragraph follows this heading. ".repeat(25)} Passage ${index}.`).join("\n\n");
+  const source = Array.from({ length: 12 }, (_, index) => `## Same heading\n\n${"A full paragraph follows this heading. ".repeat(Math.ceil(MARKDOWN_PAGE_TARGET / 100))} Passage ${index}.`).join("\n\n");
   const first = parseMarkdown(source);
   assert.ok(first.pages.length > 1);
   assert.deepEqual(parseMarkdown(source).headings, first.headings);
@@ -46,10 +46,10 @@ test("headings retain stable IDs, point to their render page and stay with the f
 });
 
 test("code blocks, tables, nested lists and quotes remain complete on one render page", () => {
-  const code = `const original = "${"long code ".repeat(400)}";\n`;
-  const table = `| Column | Value |\n| --- | --- |\n${Array.from({ length: 40 }, (_, index) => `| ${index} | ${"wide cell ".repeat(10)} |`).join("\n")}`;
-  const list = Array.from({ length: 60 }, (_, index) => `- Item ${index}: ${"nested idea ".repeat(10)}\n  - Child ${index}`).join("\n");
-  const quote = `> ${"A quoted passage remains together. ".repeat(100)}`;
+  const code = `const original = "${"long code ".repeat(Math.ceil(MARKDOWN_PAGE_TARGET / 10) + 10)}";\n`;
+  const table = `| Column | Value |\n| --- | --- |\n${Array.from({ length: Math.ceil(MARKDOWN_PAGE_TARGET / 100) + 10 }, (_, index) => `| ${index} | ${"wide cell ".repeat(10)} |`).join("\n")}`;
+  const list = Array.from({ length: Math.ceil(MARKDOWN_PAGE_TARGET / 100) + 10 }, (_, index) => `- Item ${index}: ${"nested idea ".repeat(10)}\n  - Child ${index}`).join("\n");
+  const quote = `> ${"A quoted passage remains together. ".repeat(Math.ceil(MARKDOWN_PAGE_TARGET / 30) + 10)}`;
   const source = `# Atomic blocks\n\n${"Opening text. ".repeat(80)}\n\n\`\`\`javascript\n${code}\`\`\`\n\n${table}\n\n${list}\n\n${quote}\n\nFinal paragraph.`;
   const model = parseMarkdown(source);
   assert.ok(model.pages.length > 1);
@@ -57,6 +57,7 @@ test("code blocks, tables, nested lists and quotes remain complete on one render
     const original = elements(model.tree, tag);
     const paginated = model.pages.flatMap((page) => elements(page.tree, tag));
     assert.deepEqual(paginated, original);
+    assert.ok(markdownNodeText(original[0]).length > MARKDOWN_PAGE_TARGET, `${tag} should exercise an oversized atomic block`);
   }
   assert.equal(markdownNodeText(elements(model.tree, "code")[0]), code);
   assert.equal(model.pages.map((page) => page.text).join(""), model.text);
@@ -64,7 +65,7 @@ test("code blocks, tables, nested lists and quotes remain complete on one render
 
 test("long formatted paragraphs paginate without flattening formatting or splitting Unicode graphemes", () => {
   const phrase = "a\u0302\u0301👩🏽‍💻";
-  const source = `# Long paragraph\n\n**${phrase.repeat(800)}** [${"linked words ".repeat(400)}](https://example.com) after.`;
+  const source = `# Long paragraph\n\n**${phrase.repeat(Math.ceil(MARKDOWN_PAGE_TARGET * 2 / phrase.length))}** [${"linked words ".repeat(Math.ceil(MARKDOWN_PAGE_TARGET * 2 / 13))}](https://example.com) after.`;
   const model = parseMarkdown(source);
   assert.ok(model.pages.length > 2);
   assert.equal(model.pages.map((page) => page.text).join(""), model.text);
@@ -83,7 +84,7 @@ test("long formatted paragraphs paginate without flattening formatting or splitt
 });
 
 test("reference images and links resolve from the whole document across page boundaries", () => {
-  const source = `# Reference images\n\n![First][picture]\n\n${Array.from({ length: 14 }, (_, index) => `Paragraph ${index}. ${"More words. ".repeat(50)}`).join("\n\n")}\n\n![Last][picture]\n\n[picture]: ../assets/H%C3%ACnh%201.png "Original title"`;
+  const source = `# Reference images\n\n![First][picture]\n\n${Array.from({ length: 14 }, (_, index) => `Paragraph ${index}. ${"More words. ".repeat(Math.ceil(MARKDOWN_PAGE_TARGET / 100))}`).join("\n\n")}\n\n![Last][picture]\n\n[picture]: ../assets/H%C3%ACnh%201.png "Original title"`;
   const model = parseMarkdown(source);
   const imagePages = model.pages.flatMap((page, index) => elements(page.tree, "img").map((image) => ({ index, image })));
   assert.equal(imagePages.length, 2);
@@ -98,11 +99,12 @@ test("reference images and links resolve from the whole document across page bou
 });
 
 test("image-only paragraphs contribute to pagination even without readable text", () => {
-  const model = parseMarkdown(Array.from({ length: 20 }, (_, index) => `![Illustration ${index}](./${index}.png)`).join("\n\n"));
+  const imageCount = 80;
+  const model = parseMarkdown(Array.from({ length: imageCount }, (_, index) => `![Illustration ${index}](./${index}.png)`).join("\n\n"));
   assert.ok(model.text.length < MARKDOWN_PAGE_TARGET);
   assert.ok(model.pages.length > 1);
   assert.deepEqual(model.pages.flatMap((page) => page.imageSources), model.imageSources);
-  assert.equal(model.pages.flatMap((page) => elements(page.tree, "img")).length, 20);
+  assert.equal(model.pages.flatMap((page) => elements(page.tree, "img")).length, imageCount);
 });
 
 test("splitting an inline paragraph keeps boundary images once and preserves their link wrapper", () => {
@@ -119,7 +121,7 @@ test("splitting an inline paragraph keeps boundary images once and preserves the
 
 test("offset helpers locate page boundaries and legacy source coordinates without rewriting annotations", () => {
   const quote = "A legacy quotation";
-  const source = `${Array.from({ length: 12 }, (_, index) => `Paragraph ${index}. ${"A thoughtful sentence. ".repeat(20)}`).join("\n\n")}\n\n**${quote}** at the end.`;
+  const source = `${Array.from({ length: 12 }, (_, index) => `Paragraph ${index}. ${"A thoughtful sentence. ".repeat(Math.ceil(MARKDOWN_PAGE_TARGET / 200))}`).join("\n\n")}\n\n**${quote}** at the end.`;
   const model = parseMarkdown(source);
   const sourceOffset = source.indexOf(quote);
   const offset = markdownPreviewOffset(model, sourceOffset);
@@ -144,5 +146,21 @@ test("empty and short Markdown have one stable page", () => {
     assert.equal(model.pages[0].start, 0);
     assert.equal(model.pages[0].end, model.text.length);
     assert.equal(markdownNodeText(model.pages[0].tree), model.text);
+  }
+});
+
+test("Markdown fits 15,000 rendered characters per paragraph before splitting and retains formatting", () => {
+  for (const length of [14_999, 15_000, 15_001]) {
+    const text = "a".repeat(length);
+    const model = parseMarkdown(`**${text}**`);
+    assert.equal(model.text, text);
+    assert.equal(model.pages.length, length > 15_000 ? 2 : 1);
+    assert.equal(model.pages[0].text.length, Math.min(length, 15_000));
+    assert.equal(model.pages.map((page) => page.text).join(""), text);
+    assert.equal(elements(model.tree, "strong").length, 1);
+    for (const page of model.pages) {
+      assert.equal(elements(page.tree, "strong").length, 1);
+      assert.equal(markdownNodeText(page.tree), page.text);
+    }
   }
 });

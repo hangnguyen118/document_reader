@@ -5,6 +5,8 @@ import remarkRehype from "remark-rehype";
 import GithubSlugger from "github-slugger";
 import type { Element, ElementContent, Root, RootContent, Text } from "hast";
 import { segmentGraphemes } from "./graphemes";
+import { isMarkdownDataImageUrl } from "./markdown-image-url";
+import { TEXT_PAGE_TARGET } from "./text";
 
 export { markdownHighlightRanges, markdownPageForOffset, markdownPreviewOffset } from "./markdown-pagination";
 
@@ -16,7 +18,7 @@ export interface MarkdownHeading { id: string; text: string; depth: number; page
 interface TextRun { start: number; end: number; sourceStart?: number; sourceEnd?: number }
 export interface MarkdownPage { tree: Root; start: number; end: number; text: string; imageSources: string[] }
 export interface MarkdownDocument { tree: Root; text: string; headings: MarkdownHeading[]; runs: TextRun[]; imageSources: string[]; pages: MarkdownPage[] }
-export const MARKDOWN_PAGE_TARGET = 2600;
+export const MARKDOWN_PAGE_TARGET = TEXT_PAGE_TARGET;
 const IMAGE_PAGE_WEIGHT = 400;
 
 // No raw HTML or MDX evaluation: only the elements produced by these plugins
@@ -29,6 +31,8 @@ export function markdownNodeText(node: Root | RootContent): string {
 }
 
 export function safeMarkdownUrl(value: string, image = false): string | undefined {
+  // Only image sources get this narrow exception; links retain the same policy.
+  if (/^data:/i.test(value)) return image && isMarkdownDataImageUrl(value) ? value : undefined;
   const url = value.trim();
   const protocol = url.replace(/[\u0000-\u0020\u007f]/g, "").match(/^([a-z][a-z\d+.-]*):/i)?.[1].toLowerCase();
   if (protocol && !(image ? ["http", "https"] : ["http", "https", "mailto", "tel"]).includes(protocol)) return undefined;
