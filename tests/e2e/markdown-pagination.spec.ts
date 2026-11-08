@@ -92,6 +92,30 @@ test("Markdown pages support navigation, resume, saved page URLs and cross-page 
   await expect(currentPage).toHaveValue(String(pageCount - 1));
 });
 
+test("Markdown larger than one million characters uploads and retains its final page after reload", async ({ page }) => {
+  const imageUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aG0cAAAAASUVORK5CYII=";
+  const source = `${readingSource(270)}\n\n## End of chapter 2\n\nThe final passage is preserved.\n\n![Chapter illustration][illustration]\n\n[illustration]: ${imageUrl}\n`;
+  expect(source.length).toBeGreaterThan(1_000_000);
+  const { currentPage, pageCount } = await uploadReading(page, source, "chuong2.md");
+  await expect(currentPage).toHaveValue("0");
+  await expect(page.locator(".markdown-preview h1")).toHaveText("A paginated book");
+  await expect(page.getByRole("button", { name: "Previous page", exact: true })).toBeDisabled();
+
+  await currentPage.selectOption(String(pageCount - 1));
+  await expect(page.locator(".markdown-preview h2").last()).toHaveText("End of chapter 2");
+  await expect(page.locator(".markdown-preview")).toContainText("The final passage is preserved.");
+  await expect(page.getByRole("img", { name: "Chapter illustration", exact: true })).toHaveAttribute("src", imageUrl);
+  await expect(page.getByRole("button", { name: "Next page", exact: true })).toBeDisabled();
+  await expect.poll(async () => (await savedReading(page)).record.currentPage).toBe(pageCount - 1);
+
+  await page.reload();
+  await expect(currentPage).toHaveValue(String(pageCount - 1));
+  await expect(currentPage.locator("option")).toHaveCount(pageCount);
+  await expect(page.locator(".markdown-preview h2").last()).toHaveText("End of chapter 2");
+  await expect(page.getByRole("img", { name: "Chapter illustration", exact: true })).toHaveAttribute("src", imageUrl);
+  expect((await savedReading(page)).record.pages).toEqual([source]);
+});
+
 test("Markdown highlights and notes retain their rendered offsets and reading page", async ({ page }) => {
   const { currentPage } = await uploadReading(page);
   await currentPage.selectOption("1");

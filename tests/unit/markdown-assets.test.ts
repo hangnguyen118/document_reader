@@ -126,6 +126,22 @@ test("single Markdown imports retain supported embedded images without separate 
   assert.ok(!progress.some((message) => message.includes("Checking image")));
 });
 
+test("Markdown over one million characters imports with pagination and folder images intact", async () => {
+  const paragraph = "A complete paragraph in a long chapter. ".repeat(100);
+  const source = `# Chapter two\n\n${`${paragraph}\n\n`.repeat(260)}![Diagram][diagram]\n\n[diagram]: ../images/diagram.png\n\nThe end.\n`;
+  assert.ok(source.length > 1_000_000);
+  const result = await importMarkdownWithAssets(new File([source], "chuong2.md"), {
+    markdownPath: "chapters/chuong2.md",
+    files: [{ path: "images/diagram.png", file: new File([pngBytes], "diagram.png") }]
+  });
+  assert.deepEqual(result.document.pages, [source]);
+  assert.ok(result.document.markdownPageCount! > 1);
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.assets.length, 1);
+  assert.equal(result.assets[0].path, "images/diagram.png");
+  assert.deepEqual(Buffer.from(await result.assets[0].blob.arrayBuffer()), pngBytes);
+});
+
 test("embedded images coexist with local folder assets without duplicated image resources", async () => {
   const url = `data:image/png;base64,${pngBytes.toString("base64")}`;
   const source = `# Mixed\n\n![Embedded](${url})\n\n![Local](../images/local.png)\n\n![Repeated embedded](${url})\n\n![Local alias](../images/local.png?version=2)`;

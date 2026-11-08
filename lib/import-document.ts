@@ -51,7 +51,9 @@ export async function importDocument(file: File): Promise<ReadingDocument> {
     pages = paginateText(decodeDocumentText(await file.arrayBuffer()));
   }
   if (type !== "MD" && (!pages.length || !pages.some((page) => page.trim()))) throw new Error("This document does not contain readable text.");
-  if (pages.join("").length > 1_000_000) throw new Error("Please choose a document with fewer than one million characters.");
+  // Markdown source may include large embedded images; its size is bounded by
+  // MAX_FILE_BYTES, and the preview paginates the rendered content separately.
+  if (type !== "MD" && pages.join("").length > 1_000_000) throw new Error("Please choose a document with fewer than one million characters.");
   return {
     id: crypto.randomUUID(), title: file.name.replace(/\.[^.]+$/, "").replace(/[_-]/g, " "), type, pages,
     author: "Your upload", description: type === "MD" ? "Markdown document · Preview" : `${type} document · ${pages.length} ${pages.length === 1 ? "page" : "pages"}`,

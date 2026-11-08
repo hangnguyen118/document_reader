@@ -35,9 +35,22 @@ test("Markdown rejects binary content, malformed Unicode and read failures with 
   await assert.rejects(importDocument(unreadable), /could not be read/i);
 });
 
-test("Markdown retains existing file and extracted text size limits", async () => {
+test("Markdown accepts more than one million characters without truncating the source", async () => {
+  const source = `# Chương 2\r\n\r\n${"Nội dung tiếng Việt A\u0306\u0301 📖.\r\n\r\n".repeat(40_000)}End of chapter.\r\n`;
+  assert.ok(source.length > 1_000_000);
+  for (const extension of ["md", "markdown"]) {
+    const result = await importDocument(new File([source], `chuong2.${extension}`));
+    assert.equal(result.type, "MD");
+    assert.deepEqual(result.pages, [source]);
+  }
+});
+
+test("Markdown retains the file byte limit", async () => {
   const oversized = new File(["# Markdown"], "oversized.md");
   Object.defineProperty(oversized, "size", { value: MAX_FILE_BYTES + 1 });
   await assert.rejects(importDocument(oversized), /too large/i);
-  await assert.rejects(importDocument(new File(["a".repeat(1_000_001)], "too-long.md")), /one million characters/i);
+});
+
+test("non-Markdown imports retain the extracted text size limit", async () => {
+  await assert.rejects(importDocument(new File(["a".repeat(1_000_001)], "too-long.txt")), /one million characters/i);
 });

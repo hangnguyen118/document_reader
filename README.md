@@ -287,7 +287,7 @@ The theme is stored separately in localStorage under **`folio-theme`**. Saves ar
 
 ## Limitations
 
-- Imports accept files up to **20 MiB** (shown as 20 MB in the UI) and **1,000,000 extracted characters**. PDF extraction processes every page without a separate page-count limit.
+- Imports accept files up to **20 MiB** (shown as 20 MB in the UI). PDF, DOCX, and TXT also have a limit of **1,000,000 extracted characters**. Markdown has no separate character limit; its full source, including embedded images, is retained within the file size limit. PDF extraction processes every page without a separate page-count limit.
 - PDF and DOCX imports extract text; original layouts and images are not preserved.
 - Markdown does not yet render Mermaid diagrams or LaTeX formulas. Mermaid fences display as copyable plain code. Code blocks longer than 100,000 characters skip syntax highlighting to limit processing cost.
 - Markdown images must be included through **Upload Markdown folder**. A standalone `.md` upload cannot access sibling files on your device. Folder upload is unavailable on browsers without directory selection, and ZIP import is not supported. Ordinary Markdown links retain their existing URL behavior.
